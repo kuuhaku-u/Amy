@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AI Finance Brain</title>
+
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    input, button { padding: 10px; width: 100%; margin: 5px 0; }
+    pre { background: #111; color: #0f0; padding: 10px; height: 400px; overflow: auto; }
+  </style>
+</head>
+
+<body>
+
+<h2>💰 AI Finance Brain</h2>
+
+<input id="text" placeholder="I spent 40 on food">
+
+<button onclick="send()">Send</button>
+<button onclick="history()">History</button>
+<button onclick="insights()">Insights</button>
+
+<pre id="out"></pre>
+
+<script>
+
+const API = "http://192.168.0.7:8000"; // CHANGE THIS
+
+let out = document.getElementById("out");
+
+async function send() {
+  out.innerText = "Thinking...\n";
+
+  const res = await fetch(`${API}/stream`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ text: document.getElementById("text").value })
+  });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+
+  let result = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    result += decoder.decode(value);
+    out.innerText = result;
+  }
+}
+
+async function history() {
+  const res = await fetch(`${API}/history`);
+  out.innerText = JSON.stringify(await res.json(), null, 2);
+}
+
+async function insights() {
+  const res = await fetch(`${API}/insights`);
+  out.innerText = await res.text();
+}
+
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+</script>
+
+</body>
+</html>
