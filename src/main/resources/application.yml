@@ -1,0 +1,16 @@
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: never
+
+app:
+  spreadsheet-id: ${SPREADSHEET_ID:1TpB2iMLGiJzzz2trmitq2hGZLDOQ120gndDJuDqLBJk}
+  sheet-name: "${SHEET_NAME:Monthy Spend }"
+  access-token: ${APP_ACCESS_TOKEN:change-me-before-running}
+  google-credentials-json: ${GOOGLE_CREDENTIALS_JSON:}
+  google-credentials-file: ${GOOGLE_APPLICATION_CREDENTIALS:credentials.json}
+
+logging:
+  level:
+    root: INFO
+    app.monthlyspend: INFO

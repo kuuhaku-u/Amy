@@ -1,0 +1,19 @@
+{
+  "name": "Monthly Spend",
+  "short_name": "Spend",
+  "description": "Quick daily expense entry synced to Google Sheets.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f0e8",
+  "theme_color": "#152b25",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

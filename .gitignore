@@ -1,3 +1,77 @@
+# Secrets and local environment
+credentials.json
+credentials*.json
+!credentials.example.json
+.env
+.env.*
+!.env.example
+.dev.vars
+*.pem
+*.key
+application-local.yml
+application-local.yaml
+
+# Frontend dependencies and generated output
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Java / Maven generated output
+target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/timing.properties
+.flattened-pom.xml
+dependency-reduced-pom.xml
+hs_err_pid*
+replay_pid*
+
+# Downloaded local development tools
+.tools/
 packages/
-__pycache__
-*.json
+
+# Python leftovers and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDE and editor-specific files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local runtime files
+*.log
+*.pid
+*.pid.lock
+tmp/
+temp/
+
+# Agent/workspace-local metadata
+.agents/
+.codex/
