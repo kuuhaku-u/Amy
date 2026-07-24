@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: monthly-spend-pwa
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: APP_ACCESS_TOKEN
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: SPREADSHEET_ID
+        value: 1TpB2iMLGiJzzz2trmitq2hGZLDOQ120gndDJuDqLBJk
+      - key: SHEET_NAME
+        value: "Monthy Spend "

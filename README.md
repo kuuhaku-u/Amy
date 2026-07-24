@@ -322,3 +322,17 @@ mvn -DskipTests package
 ```
 
 Before entering real expenses, use a copy of the worksheet to confirm its permissions, headers, date formatting, and calculations.
+
+## Deploy on Render
+
+The repository includes `render.yaml`, which defines one free Docker web service in Render's Singapore region. It builds the existing `Dockerfile` and serves the frontend and backend together.
+
+1. Push the repository to GitHub.
+2. In Render, select **New → Blueprint** and connect the repository.
+3. Render reads `render.yaml` and asks for two secret values:
+   - `APP_ACCESS_TOKEN`: a long random private key used in phone activation links.
+   - `GOOGLE_CREDENTIALS_JSON`: the complete contents of `credentials.json`.
+4. Create the service and wait for its health check to pass.
+5. Open `https://YOUR-SERVICE.onrender.com/#access=YOUR-APP-ACCESS-TOKEN`.
+
+Never put either secret directly in `render.yaml` or commit `credentials.json`.
