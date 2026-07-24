@@ -13,6 +13,17 @@ const themes: { key: Theme; label: string; icon: string }[] = [
   { key: "sanrio", label: "Sanrio", icon: "♡" }
 ];
 
+const sanrioCharacters = [
+  { name: "Hello Kitty", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_hello-kitty.png" },
+  { name: "My Melody", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_my-melody.png" },
+  { name: "Cinnamoroll", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_cinnamoroll.png" },
+  { name: "Kuromi", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_kuromi.png" },
+  { name: "Pochacco", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_pochacco.png" },
+  { name: "Pompompurin", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_pompompurin.png" },
+  { name: "Little Twin Stars", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_little-twin-stars.png" },
+  { name: "Hanamaruobake", image: "https://corporate.sanrio.co.jp/en/business-info/images/img_hanamaruobake.png" }
+] as const;
+
 const emptyValues = (): FormValues => Object.fromEntries(expenseFields.map(({ key }) => [key, ""])) as FormValues;
 const today = () => {
   const now = new Date();
@@ -39,6 +50,10 @@ export default function App() {
     const saved = localStorage.getItem("monthlySpendTheme");
     return saved === "dark" || saved === "sanrio" ? saved : "light";
   });
+  const [sanrioCharacter, setSanrioCharacter] = useState(() => {
+    const saved = localStorage.getItem("monthlySpendSanrioCharacter");
+    return sanrioCharacters.find((character) => character.name === saved) ?? sanrioCharacters[0];
+  });
   const [token, setToken] = useState(tokenFromLocation);
   const [tokenInput, setTokenInput] = useState("");
   const [date, setDate] = useState(today);
@@ -56,6 +71,10 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("monthlySpendTheme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("monthlySpendSanrioCharacter", sanrioCharacter.name);
+  }, [sanrioCharacter]);
 
   const sync = useCallback(async () => {
     if (!token || !navigator.onLine) return;
@@ -190,7 +209,7 @@ export default function App() {
 
   if (!token) {
     return (
-      <main className="lock-screen">
+      <><CharacterBackground theme={theme} character={sanrioCharacter} /><main className="lock-screen">
         <ThemePicker theme={theme} onChange={setTheme} />
         <div className="brand-mark">₹</div>
         <h1>Monthly Spend</h1>
@@ -200,12 +219,12 @@ export default function App() {
           <input type="password" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} />
         </label>
         <button className="primary-button" onClick={unlock}>Unlock app</button>
-      </main>
+      </main></>
     );
   }
 
   return (
-    <main className="app-shell">
+    <><CharacterBackground theme={theme} character={sanrioCharacter} /><main className="app-shell">
       <header className="topbar">
         <div>
           <span className="eyebrow">Personal ledger</span>
@@ -217,6 +236,10 @@ export default function App() {
       </header>
 
       <ThemePicker theme={theme} onChange={setTheme} />
+
+      {theme === "sanrio" && (
+        <SanrioFriends selected={sanrioCharacter.name} onSelect={setSanrioCharacter} />
+      )}
 
       <section className="date-card">
         <label htmlFor="spend-date">Entry date</label>
@@ -271,7 +294,7 @@ export default function App() {
           {online ? "Save entry" : "Save offline"}
         </button>
       </footer>
-    </main>
+    </main></>
   );
 }
 
@@ -291,5 +314,40 @@ function ThemePicker({ theme, onChange }: { theme: Theme; onChange: (theme: Them
         </button>
       ))}
     </div>
+  );
+}
+
+function CharacterBackground({ theme, character }: { theme: Theme; character: (typeof sanrioCharacters)[number] }) {
+  if (theme !== "sanrio") return null;
+  return (
+    <div className="character-background" aria-hidden="true">
+      <img className="corner-character left" src={character.image} alt="" />
+      <img className="corner-character right" src={character.image} alt="" />
+    </div>
+  );
+}
+
+function SanrioFriends({ selected, onSelect }: {
+  selected: string;
+  onSelect: (character: (typeof sanrioCharacters)[number]) => void;
+}) {
+
+  return (
+    <aside className="sanrio-friends" aria-label="Sanrio friends">
+      <div className="sanrio-ribbon"><span>♡</span> Little spending buddies <span>♡</span></div>
+      <div className="character-strip">
+        {sanrioCharacters.map((friend, index) => (
+          <button type="button" aria-pressed={selected === friend.name}
+            className={`character-card tilt-${(index % 3) + 1} ${selected === friend.name ? "selected" : ""}`}
+            onClick={() => onSelect(friend)} key={friend.name}>
+            <img src={friend.image} alt={friend.name} loading="lazy" />
+            <span>{friend.name}</span>
+          </button>
+        ))}
+      </div>
+      <a href="https://www.sanrio.com/pages/2026-sanrio-character-wallpapers" target="_blank" rel="noreferrer">
+        Official Sanrio character art · personal use
+      </a>
+    </aside>
   );
 }

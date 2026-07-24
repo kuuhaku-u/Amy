@@ -6,6 +6,7 @@ An Android-installable expense form backed by Spring Boot and Google Sheets. The
 
 - React + TypeScript mobile PWA with an IndexedDB offline queue and background sync.
 - Persistent Light, Dark, and original Sanrio-inspired pastel themes.
+- The private-use Sanrio theme displays unmodified official 2026 My Melody, Pochacco, Cinnamoroll, U*SA*HA*NA, My Sweet Piano, Lovelymocha, and Hanamaruobake wallpaper artwork in a swipeable gallery and soft background collage, with source attribution.
 - Java 17 / Spring Boot API served from the same application.
 - Service-account authentication for Google Sheets; credentials never reach the browser.
 - Private bearer-link access, request validation, write rate limiting, and retry deduplication.
