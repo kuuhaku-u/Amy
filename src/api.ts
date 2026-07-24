@@ -1,5 +1,5 @@
 import { queuedItems, removeQueued } from "./db";
-import type { SpendResponse } from "./types";
+import type { AnalyticsResponse, SpendResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -26,6 +26,10 @@ export function loadDate(date: string, token: string): Promise<SpendResponse> {
   return request(`/api/monthly-spend?date=${encodeURIComponent(date)}`, token);
 }
 
+export function loadAnalytics(date: string, token: string): Promise<AnalyticsResponse> {
+  return request(`/api/monthly-spend/analytics?date=${encodeURIComponent(date)}`, token);
+}
+
 export async function syncQueued(token: string): Promise<{ synced: number; remaining: number }> {
   const items = await queuedItems();
   let synced = 0;
@@ -44,4 +48,3 @@ export async function syncQueued(token: string): Promise<{ synced: number; remai
   }
   return { synced, remaining: items.length - synced };
 }
-

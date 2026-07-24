@@ -1,6 +1,7 @@
 package app.monthlyspend.api;
 
 import app.monthlyspend.sheet.MonthlySpendModels.SpendResponse;
+import app.monthlyspend.sheet.MonthlySpendModels.AnalyticsResponse;
 import app.monthlyspend.sheet.MonthlySpendModels.UpdateRequest;
 import app.monthlyspend.sheet.MonthlySpendService;
 import jakarta.validation.Valid;
@@ -32,5 +33,9 @@ public class MonthlySpendController {
     SpendResponse update(@Valid @RequestBody UpdateRequest request) {
         return service.update(request);
     }
-}
 
+    @GetMapping("/analytics")
+    AnalyticsResponse analytics(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return service.analytics(date);
+    }
+}

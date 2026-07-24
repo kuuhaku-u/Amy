@@ -22,10 +22,22 @@ export interface SpendResponse {
   monthlySpend: number;
 }
 
+export interface AnalyticsResponse {
+  month: string;
+  monthlyTotal: number;
+  previousMonthTotal: number;
+  monthChangePercent: number | null;
+  averageRecordedDay: number;
+  highestCategory: string;
+  daily: { date: string; total: number }[];
+  categories: { key: ExpenseKey; label: string; total: number }[];
+  week: { start: string; total: number; previousTotal: number; changePercent: number | null };
+  insights: string[];
+}
+
 export interface QueuedSubmission {
   submissionId: string;
   date: string;
   changes: Partial<Record<ExpenseKey, number | null>>;
   createdAt: number;
 }
-

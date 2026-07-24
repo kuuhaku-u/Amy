@@ -21,6 +21,10 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static app.monthlyspend.sheet.MonthlySpendModels.SpendResponse;
 import static app.monthlyspend.sheet.MonthlySpendModels.UpdateRequest;
+import static app.monthlyspend.sheet.MonthlySpendModels.AnalyticsResponse;
+import static app.monthlyspend.sheet.MonthlySpendModels.CategorySpend;
+import static app.monthlyspend.sheet.MonthlySpendModels.DailySpend;
+import static app.monthlyspend.sheet.MonthlySpendModels.WeekComparison;
 
 @Service
 public class MonthlySpendService {
@@ -56,6 +60,55 @@ public class MonthlySpendService {
         return rows.stream().filter(row -> date.equals(row.date)).findFirst()
                 .map(row -> response(row, true))
                 .orElseGet(() -> emptyResponse(date));
+    }
+
+    public AnalyticsResponse analytics(LocalDate anchor) {
+        var rows = loadRows();
+        ensureUniqueDates(rows);
+        var month = YearMonth.from(anchor);
+        var previousMonth = month.minusMonths(1);
+        var monthRows = rows.stream().filter(row -> YearMonth.from(row.date).equals(month))
+                .sorted(Comparator.comparing(row -> row.date)).toList();
+
+        var daily = monthRows.stream()
+                .map(row -> new DailySpend(row.date, allExpenseTotal(row)))
+                .toList();
+        var monthlyTotal = daily.stream().map(DailySpend::total).reduce(BigDecimal.ZERO, BigDecimal::add);
+        var previousMonthTotal = rows.stream().filter(row -> YearMonth.from(row.date).equals(previousMonth))
+                .map(this::allExpenseTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        var categories = new ArrayList<CategorySpend>();
+        for (var field : ExpenseField.values()) {
+            var total = monthRows.stream().map(row -> zero(row.values.get(field)))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            categories.add(new CategorySpend(field.key(), field.header(), total));
+        }
+        categories.sort(Comparator.comparing(CategorySpend::total).reversed());
+
+        var weekStart = mondayOf(anchor);
+        var previousWeekStart = weekStart.minusWeeks(1);
+        var weekTotal = totalBetween(rows, weekStart, weekStart.plusDays(6));
+        var previousWeekTotal = totalBetween(rows, previousWeekStart, previousWeekStart.plusDays(6));
+        var recordedDays = daily.stream().filter(item -> item.total().signum() > 0).count();
+        var average = recordedDays == 0 ? BigDecimal.ZERO
+                : monthlyTotal.divide(BigDecimal.valueOf(recordedDays), 2, RoundingMode.HALF_UP);
+        var highest = categories.stream().filter(item -> item.total().signum() > 0).findFirst()
+                .map(CategorySpend::label).orElse("No spending yet");
+        var monthChange = percentChange(monthlyTotal, previousMonthTotal);
+        var weekChange = percentChange(weekTotal, previousWeekTotal);
+
+        var insights = new ArrayList<String>();
+        if (monthlyTotal.signum() == 0) insights.add("No spending has been recorded for this month yet.");
+        else {
+            insights.add(highest + " is your highest spending category this month.");
+            if (monthChange != null) insights.add("Monthly spending is " + direction(monthChange) + " than the previous month.");
+            if (weekChange != null) insights.add("This week is " + direction(weekChange) + " compared with last week.");
+            if (recordedDays > 0) insights.add("Your average across recorded days is ₹" + average.toPlainString() + ".");
+        }
+
+        return new AnalyticsResponse(month.toString(), monthlyTotal, previousMonthTotal, monthChange,
+                average, highest, daily, categories,
+                new WeekComparison(weekStart, weekTotal, previousWeekTotal, weekChange), insights);
     }
 
     public SpendResponse update(UpdateRequest request) {
@@ -163,6 +216,26 @@ public class MonthlySpendService {
             for (var value : row.values.values()) running = running.add(zero(value));
             row.monthlySpend = running;
         }
+    }
+
+    private BigDecimal allExpenseTotal(SheetRow row) {
+        return row.values.values().stream().map(MonthlySpendService::zero)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal totalBetween(List<SheetRow> rows, LocalDate start, LocalDate end) {
+        return rows.stream().filter(row -> !row.date.isBefore(start) && !row.date.isAfter(end))
+                .map(this::allExpenseTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static BigDecimal percentChange(BigDecimal current, BigDecimal previous) {
+        if (previous.signum() == 0) return null;
+        return current.subtract(previous).multiply(BigDecimal.valueOf(100))
+                .divide(previous, 1, RoundingMode.HALF_UP);
+    }
+
+    private static String direction(BigDecimal change) {
+        return change.signum() >= 0 ? change.abs().toPlainString() + "% higher" : change.abs().toPlainString() + "% lower";
     }
 
     private void writeRows(List<SheetRow> rows, SheetRow edited, Map<String, BigDecimal> changes) {

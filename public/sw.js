@@ -1,4 +1,4 @@
-const CACHE = "monthly-spend-v2";
+const CACHE = "monthly-spend-v3";
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 const DB_NAME = "monthly-spend";
 

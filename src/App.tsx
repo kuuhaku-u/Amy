@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, loadDate, syncQueued } from "./api";
+import { ApiError, loadAnalytics, loadDate, syncQueued } from "./api";
 import { enqueue, queuedItems, setConfig } from "./db";
-import { expenseFields, type ExpenseKey, type SpendResponse } from "./types";
+import { expenseFields, type AnalyticsResponse, type ExpenseKey, type SpendResponse } from "./types";
 
 type FormValues = Record<ExpenseKey, string>;
 type Status = "idle" | "loading" | "saving" | "queued" | "saved" | "error";
@@ -64,6 +64,7 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
+  const [view, setView] = useState<"expenses" | "insights">("expenses");
 
   const refreshPending = useCallback(async () => setPendingCount((await queuedItems()).length), []);
 
@@ -237,9 +238,16 @@ export default function App() {
 
       <ThemePicker theme={theme} onChange={setTheme} />
 
-      {theme === "sanrio" && (
+      <nav className="view-tabs" aria-label="App sections">
+        <button className={view === "expenses" ? "active" : ""} onClick={() => setView("expenses")}>＋ Expenses</button>
+        <button className={view === "insights" ? "active" : ""} onClick={() => setView("insights")}>⌁ Insights</button>
+      </nav>
+
+      {theme === "sanrio" && view === "expenses" && (
         <SanrioFriends selected={sanrioCharacter.name} onSelect={setSanrioCharacter} />
       )}
+
+      {view === "insights" ? <AnalyticsView date={date} token={token} online={online} /> : <>
 
       <section className="date-card">
         <label htmlFor="spend-date">Entry date</label>
@@ -294,8 +302,74 @@ export default function App() {
           {online ? "Save entry" : "Save offline"}
         </button>
       </footer>
+      </>}
     </main></>
   );
+}
+
+function AnalyticsView({ date, token, online }: { date: string; token: string; online: boolean }) {
+  const [analysisDate, setAnalysisDate] = useState(date);
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!online) { setError("Analytics needs an internet connection to read the sheet."); setLoading(false); return; }
+    let active = true;
+    setLoading(true);
+    setError("");
+    loadAnalytics(analysisDate, token).then((result) => { if (active) setAnalytics(result); })
+      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Could not load analytics."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [analysisDate, online, token]);
+
+  if (loading) return <section className="analytics-state">Loading your spending analysis…</section>;
+  if (error || !analytics) return <section className="analytics-state error">{error || "No analytics available."}</section>;
+  const maxDay = Math.max(1, ...analytics.daily.map((item) => item.total));
+  const maxCategory = Math.max(1, ...analytics.categories.map((item) => item.total));
+  const monthLabel = new Date(`${analytics.month}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const change = (value: number | null) => value == null ? "No comparison yet" : `${Math.abs(value)}% ${value >= 0 ? "higher" : "lower"}`;
+
+  return <section className="analytics-view">
+    <div className="analytics-heading"><div><span className="eyebrow">Free, exact calculations</span><h2>{monthLabel}</h2></div>
+      <label className="analysis-date"><span>Analyze date</span><input type="date" value={analysisDate} onChange={(event) => setAnalysisDate(event.target.value)} /></label>
+    </div>
+    <div className="analytics-kpis">
+      <article><span>Month total</span><strong>{money(analytics.monthlyTotal)}</strong><small>{change(analytics.monthChangePercent)} than last month</small></article>
+      <article><span>Recorded-day average</span><strong>{money(analytics.averageRecordedDay)}</strong><small>Highest: {analytics.highestCategory}</small></article>
+    </div>
+
+    <article className="chart-card">
+      <div className="chart-title"><h3>Daily spending</h3><span>{analytics.daily.length} recorded days</span></div>
+      {analytics.daily.length === 0 ? <p className="empty-chart">No entries this month.</p> :
+        <div className="daily-chart" aria-label="Daily spending bar chart">
+          {analytics.daily.map((item) => <div className="day-column" key={item.date} title={`${item.date}: ${money(item.total)}`}>
+            <span className="day-value">{item.total > 0 ? `₹${Math.round(item.total)}` : ""}</span>
+            <i style={{ height: `${Math.max(3, item.total / maxDay * 100)}%` }} />
+            <small>{Number(item.date.slice(-2))}</small>
+          </div>)}
+        </div>}
+    </article>
+
+    <article className="chart-card">
+      <div className="chart-title"><h3>Categories</h3><span>Monthly breakdown</span></div>
+      <div className="category-chart">{analytics.categories.map((item) => <div className="category-row" key={item.key}>
+        <div><span>{item.label}</span><strong>{money(item.total)}</strong></div>
+        <i><b style={{ width: `${item.total / maxCategory * 100}%` }} /></i>
+      </div>)}</div>
+    </article>
+
+    <article className="week-card">
+      <span className="eyebrow">Week of {new Date(`${analytics.week.start}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
+      <div><p><small>This week</small><strong>{money(analytics.week.total)}</strong></p><p><small>Previous week</small><strong>{money(analytics.week.previousTotal)}</strong></p></div>
+      <span className={`change-pill ${(analytics.week.changePercent ?? 0) > 0 ? "up" : "down"}`}>{change(analytics.week.changePercent)}</span>
+    </article>
+
+    <article className="insight-card"><div className="chart-title"><h3>What stands out</h3><span>No AI needed</span></div>
+      <ul>{analytics.insights.map((insight) => <li key={insight}>{insight}</li>)}</ul>
+    </article>
+  </section>;
 }
 
 function ThemePicker({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {

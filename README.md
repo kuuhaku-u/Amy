@@ -1,5 +1,9 @@
 # Monthly Spend PWA
 
+The app also includes a free Insights screen with daily spending bars, monthly category analysis,
+week-over-week comparisons, and deterministic observations calculated by the Java backend. It uses
+no AI service or paid analytics API.
+
 An Android-installable expense form backed by Spring Boot and Google Sheets. The app loads or creates one row per full date in the first `Monthly Spend` worksheet, supports offline saves, and updates only fields changed by the user.
 
 ## What is included
