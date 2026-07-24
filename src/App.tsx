@@ -5,6 +5,13 @@ import { expenseFields, type ExpenseKey, type SpendResponse } from "./types";
 
 type FormValues = Record<ExpenseKey, string>;
 type Status = "idle" | "loading" | "saving" | "queued" | "saved" | "error";
+type Theme = "light" | "dark" | "sanrio";
+
+const themes: { key: Theme; label: string; icon: string }[] = [
+  { key: "light", label: "Light", icon: "☀" },
+  { key: "dark", label: "Dark", icon: "☾" },
+  { key: "sanrio", label: "Sanrio", icon: "♡" }
+];
 
 const emptyValues = (): FormValues => Object.fromEntries(expenseFields.map(({ key }) => [key, ""])) as FormValues;
 const today = () => {
@@ -28,6 +35,10 @@ function tokenFromLocation(): string {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem("monthlySpendTheme");
+    return saved === "dark" || saved === "sanrio" ? saved : "light";
+  });
   const [token, setToken] = useState(tokenFromLocation);
   const [tokenInput, setTokenInput] = useState("");
   const [date, setDate] = useState(today);
@@ -40,6 +51,11 @@ export default function App() {
   const [online, setOnline] = useState(navigator.onLine);
 
   const refreshPending = useCallback(async () => setPendingCount((await queuedItems()).length), []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("monthlySpendTheme", theme);
+  }, [theme]);
 
   const sync = useCallback(async () => {
     if (!token || !navigator.onLine) return;
@@ -175,6 +191,7 @@ export default function App() {
   if (!token) {
     return (
       <main className="lock-screen">
+        <ThemePicker theme={theme} onChange={setTheme} />
         <div className="brand-mark">₹</div>
         <h1>Monthly Spend</h1>
         <p>Open your private access link, or enter the access key for this device.</p>
@@ -198,6 +215,8 @@ export default function App() {
           <span />{online ? "Online" : "Offline"}
         </div>
       </header>
+
+      <ThemePicker theme={theme} onChange={setTheme} />
 
       <section className="date-card">
         <label htmlFor="spend-date">Entry date</label>
@@ -253,5 +272,24 @@ export default function App() {
         </button>
       </footer>
     </main>
+  );
+}
+
+function ThemePicker({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
+  return (
+    <div className="theme-picker" role="radiogroup" aria-label="App theme">
+      {themes.map((option) => (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={theme === option.key}
+          className={theme === option.key ? "active" : ""}
+          onClick={() => onChange(option.key)}
+          key={option.key}
+        >
+          <span aria-hidden="true">{option.icon}</span>{option.label}
+        </button>
+      ))}
+    </div>
   );
 }
