@@ -1,5 +1,7 @@
 import { queuedItems, removeQueued } from "./db";
-import type { AnalyticsResponse, SpendResponse } from "./types";
+import type { AnalyticsResponse, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -8,7 +10,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
@@ -28,6 +30,13 @@ export function loadDate(date: string, token: string): Promise<SpendResponse> {
 
 export function loadAnalytics(date: string, token: string): Promise<AnalyticsResponse> {
   return request(`/api/monthly-spend/analytics?date=${encodeURIComponent(date)}`, token);
+}
+
+export function recordTransaction(transaction: TransactionRequest, token: string): Promise<TransactionResponse> {
+  return request("/api/monthly-spend/transactions", token, {
+    method: "POST",
+    body: JSON.stringify(transaction)
+  });
 }
 
 export async function syncQueued(token: string): Promise<{ synced: number; remaining: number }> {

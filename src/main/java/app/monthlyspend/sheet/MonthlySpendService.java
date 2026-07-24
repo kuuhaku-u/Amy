@@ -10,6 +10,7 @@ import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,9 +26,16 @@ import static app.monthlyspend.sheet.MonthlySpendModels.AnalyticsResponse;
 import static app.monthlyspend.sheet.MonthlySpendModels.CategorySpend;
 import static app.monthlyspend.sheet.MonthlySpendModels.DailySpend;
 import static app.monthlyspend.sheet.MonthlySpendModels.WeekComparison;
+import static app.monthlyspend.sheet.MonthlySpendModels.TransactionRequest;
+import static app.monthlyspend.sheet.MonthlySpendModels.TransactionResponse;
 
 @Service
 public class MonthlySpendService {
+    private static final String TRANSACTION_SHEET = "Transaction Log";
+    private static final List<String> TRANSACTION_HEADERS = List.of(
+            "Event ID", "Occurred At", "Type", "Amount", "Category", "Merchant", "Source",
+            "Capture Method", "Device ID", "Status", "Recorded At"
+    );
     private static final int HEADER_ROW = 3;
     private static final int FIRST_DATA_ROW = 4;
     private static final LocalDate SHEETS_EPOCH = LocalDate.of(1899, 12, 30);
@@ -141,6 +149,115 @@ public class MonthlySpendService {
         } finally {
             updateLock.unlock();
         }
+    }
+
+    public TransactionResponse recordTransaction(TransactionRequest request) {
+        updateLock.lock();
+        try {
+            var transactionSheetId = ensureTransactionSheet();
+            var logRows = sheets.readValues(quote(TRANSACTION_SHEET) + "!A1:K");
+            if (logRows.stream().skip(1).anyMatch(row -> !row.isEmpty() && request.eventId().equals(row.get(0).toString()))) {
+                return new TransactionResponse("DUPLICATE", false, get(request.date()));
+            }
+
+            ExpenseField field = null;
+            SheetRow edited = null;
+            var rows = loadRows();
+            ensureUniqueDates(rows);
+            if (request.type() == MonthlySpendModels.TransactionType.DEBIT) {
+                field = ExpenseField.byKey().get(request.category());
+                if (field == null) throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "A valid category is required for a debit transaction.");
+                edited = rows.stream().filter(row -> request.date().equals(row.date)).findFirst().orElse(null);
+                if (edited == null) {
+                    sheets.appendRow(quotedSheet() + "!A:M", List.of(dateFormula(request.date())));
+                    rows = loadRows();
+                    ensureUniqueDates(rows);
+                    edited = rows.stream().filter(row -> request.date().equals(row.date)).findFirst()
+                            .orElseThrow(() -> new ApiException(HttpStatus.BAD_GATEWAY,
+                                    "The transaction date row could not be created."));
+                }
+                edited.values.put(field, zero(edited.values.get(field)).add(request.amount()));
+                calculate(rows);
+            }
+
+            var sheetIds = sheets.sheetIds();
+            var summarySheetId = sheetIds.get(properties.sheetName());
+            if (summarySheetId == null) throw new ApiException(HttpStatus.CONFLICT, "The summary worksheet is missing.");
+            var batch = new ArrayList<Map<String, Object>>();
+            batch.add(appendTransactionRequest(transactionSheetId, request,
+                    request.type() == MonthlySpendModels.TransactionType.DEBIT ? "APPLIED" : "LOGGED"));
+            if (edited != null) addSummaryGridUpdates(batch, summarySheetId, rows, edited, field);
+            sheets.batchUpdateSpreadsheet(batch);
+            return new TransactionResponse("CREATED", edited != null,
+                    edited == null ? get(request.date()) : response(edited, true));
+        } finally {
+            updateLock.unlock();
+        }
+    }
+
+    private int ensureTransactionSheet() {
+        var ids = sheets.sheetIds();
+        if (!ids.containsKey(TRANSACTION_SHEET)) {
+            sheets.addSheet(TRANSACTION_SHEET);
+            ids = sheets.sheetIds();
+            sheets.batchUpdateValues(List.of(Map.of(
+                    "range", quote(TRANSACTION_SHEET) + "!A1:K1",
+                    "majorDimension", "ROWS",
+                    "values", List.of(TRANSACTION_HEADERS)
+            )));
+        }
+        var values = sheets.readValues(quote(TRANSACTION_SHEET) + "!A1:K1");
+        if (values.isEmpty()) throw new ApiException(HttpStatus.CONFLICT, "The transaction log header is missing.");
+        for (int index = 0; index < TRANSACTION_HEADERS.size(); index++) {
+            var actual = index < values.get(0).size() ? values.get(0).get(index).toString().trim() : "";
+            if (!TRANSACTION_HEADERS.get(index).equals(actual)) throw new ApiException(HttpStatus.CONFLICT,
+                    "Expected transaction header '" + TRANSACTION_HEADERS.get(index) + "'.");
+        }
+        return ids.get(TRANSACTION_SHEET);
+    }
+
+    private Map<String, Object> appendTransactionRequest(int sheetId, TransactionRequest request, String status) {
+        var values = List.of(
+                stringCell(request.eventId()), stringCell(request.occurredAt().toString()), stringCell(request.type().name()),
+                numberCell(request.amount()), stringCell(request.category()), stringCell(request.merchant()),
+                stringCell(request.source()), stringCell(request.captureMethod()), stringCell(request.deviceId()),
+                stringCell(status), stringCell(OffsetDateTime.now().toString())
+        );
+        return Map.of("appendCells", Map.of(
+                "sheetId", sheetId,
+                "rows", List.of(Map.of("values", values)),
+                "fields", "userEnteredValue"
+        ));
+    }
+
+    private void addSummaryGridUpdates(List<Map<String, Object>> batch, int sheetId, List<SheetRow> rows,
+                                       SheetRow edited, ExpenseField field) {
+        addGridCell(batch, sheetId, edited.rowNumber, field.columnIndex(), edited.values.get(field));
+        for (var row : rows) {
+            addGridCell(batch, sheetId, row.rowNumber, 8, row.total);
+            addGridCell(batch, sheetId, row.rowNumber, 9, row.weekTotal);
+            addGridCell(batch, sheetId, row.rowNumber, 12, row.monthlySpend);
+        }
+    }
+
+    private void addGridCell(List<Map<String, Object>> batch, int sheetId, int oneBasedRow,
+                             int zeroBasedColumn, BigDecimal value) {
+        batch.add(Map.of("updateCells", Map.of(
+                "range", Map.of("sheetId", sheetId, "startRowIndex", oneBasedRow - 1,
+                        "endRowIndex", oneBasedRow, "startColumnIndex", zeroBasedColumn,
+                        "endColumnIndex", zeroBasedColumn + 1),
+                "rows", List.of(Map.of("values", List.of(numberCell(value)))),
+                "fields", "userEnteredValue"
+        )));
+    }
+
+    private static Map<String, Object> stringCell(String value) {
+        return Map.of("userEnteredValue", Map.of("stringValue", value == null ? "" : value));
+    }
+
+    private static Map<String, Object> numberCell(BigDecimal value) {
+        return Map.of("userEnteredValue", Map.of("numberValue", zero(value)));
     }
 
     private List<SheetRow> loadRows() {
@@ -308,6 +425,7 @@ public class MonthlySpendService {
         return "=DATE(" + date.getYear() + "," + date.getMonthValue() + "," + date.getDayOfMonth() + ")";
     }
     private String quotedSheet() { return "'" + properties.sheetName().replace("'", "''") + "'"; }
+    private static String quote(String name) { return "'" + name.replace("'", "''") + "'"; }
     private static String columnName(int oneBased) { return String.valueOf((char) ('A' + oneBased - 1)); }
 
     private static final class SheetRow {

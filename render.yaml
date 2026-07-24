@@ -17,3 +17,5 @@ services:
         value: 1TpB2iMLGiJzzz2trmitq2hGZLDOQ120gndDJuDqLBJk
       - key: SHEET_NAME
         value: "Monthy Spend "
+      - key: APP_CORS_ALLOWED_ORIGINS
+        value: "https://localhost"

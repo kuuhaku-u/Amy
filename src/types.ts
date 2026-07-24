@@ -35,6 +35,25 @@ export interface AnalyticsResponse {
   insights: string[];
 }
 
+export interface TransactionRequest {
+  eventId: string;
+  date: string;
+  occurredAt: string;
+  type: "DEBIT" | "CREDIT";
+  amount: number;
+  category?: ExpenseKey;
+  merchant?: string;
+  source: string;
+  captureMethod: "NOTIFICATION" | "IMAGE";
+  deviceId: string;
+}
+
+export interface TransactionResponse {
+  status: "CREATED" | "DUPLICATE";
+  summaryUpdated: boolean;
+  spend: SpendResponse;
+}
+
 export interface QueuedSubmission {
   submissionId: string;
   date: string;

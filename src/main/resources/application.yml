@@ -9,6 +9,7 @@ app:
   access-token: ${APP_ACCESS_TOKEN:change-me-before-running}
   google-credentials-json: ${GOOGLE_CREDENTIALS_JSON:}
   google-credentials-file: ${GOOGLE_APPLICATION_CREDENTIALS:credentials.json}
+  cors-allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:https://localhost}
 
 logging:
   level:

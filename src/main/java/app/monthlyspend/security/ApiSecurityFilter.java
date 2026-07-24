@@ -37,6 +37,18 @@ public class ApiSecurityFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        var origin = request.getHeader("Origin");
+        if (allowedOrigin(origin)) {
+            response.setHeader("Access-Control-Allow-Origin", origin);
+            response.setHeader("Vary", "Origin");
+            response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept");
+            response.setHeader("Access-Control-Allow-Methods", "GET, PUT, POST, OPTIONS");
+        }
+        if ("OPTIONS".equals(request.getMethod())) {
+            if (!allowedOrigin(origin)) error(response, 403, "This app origin is not allowed.");
+            else response.setStatus(204);
+            return;
+        }
         var authorization = request.getHeader("Authorization");
         var supplied = authorization != null && authorization.startsWith("Bearer ")
                 ? authorization.substring(7) : "";
@@ -45,12 +57,21 @@ public class ApiSecurityFilter extends OncePerRequestFilter {
             return;
         }
 
-        if ("PUT".equals(request.getMethod()) && !allowWrite(clientAddress(request))) {
+        if (("PUT".equals(request.getMethod()) || "POST".equals(request.getMethod()))
+                && !allowWrite(clientAddress(request))) {
             response.setHeader("Retry-After", "60");
             error(response, 429, "Too many save attempts. Please wait one minute.");
             return;
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean allowedOrigin(String origin) {
+        if (origin == null || origin.isBlank() || properties.corsAllowedOrigins() == null) return false;
+        for (var configured : properties.corsAllowedOrigins().split(",")) {
+            if (origin.equals(configured.trim())) return true;
+        }
+        return false;
     }
 
     private boolean allowWrite(String client) {
@@ -83,4 +104,3 @@ public class ApiSecurityFilter extends OncePerRequestFilter {
 
     private record RateBucket(long minute, int count) {}
 }
-

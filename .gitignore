@@ -8,6 +8,8 @@ credentials*.json
 .dev.vars
 *.pem
 *.key
+*.jks
+*.keystore
 application-local.yml
 application-local.yaml
 .render-key

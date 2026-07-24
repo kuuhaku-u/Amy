@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, loadAnalytics, loadDate, syncQueued } from "./api";
+import { ApiError, loadAnalytics, loadDate, recordTransaction, syncQueued } from "./api";
 import { enqueue, queuedItems, setConfig } from "./db";
 import { expenseFields, type AnalyticsResponse, type ExpenseKey, type SpendResponse } from "./types";
+import { Capture, isNativeAndroid, type CaptureDraft } from "./native";
 
 type FormValues = Record<ExpenseKey, string>;
 type Status = "idle" | "loading" | "saving" | "queued" | "saved" | "error";
@@ -38,11 +39,11 @@ function tokenFromLocation(): string {
   const match = window.location.hash.match(/^#access=(.+)$/);
   if (match) {
     const token = decodeURIComponent(match[1]);
-    localStorage.setItem("monthlySpendAccess", token);
+    if (!isNativeAndroid()) localStorage.setItem("monthlySpendAccess", token);
     history.replaceState(null, "", window.location.pathname + window.location.search);
     return token;
   }
-  return localStorage.getItem("monthlySpendAccess") || "";
+  return isNativeAndroid() ? "" : localStorage.getItem("monthlySpendAccess") || "";
 }
 
 export default function App() {
@@ -64,7 +65,8 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
-  const [view, setView] = useState<"expenses" | "insights">("expenses");
+  const [view, setView] = useState<"expenses" | "insights" | "inbox">("expenses");
+  const nativeAndroid = isNativeAndroid();
 
   const refreshPending = useCallback(async () => setPendingCount((await queuedItems()).length), []);
 
@@ -72,6 +74,20 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("monthlySpendTheme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!nativeAndroid) return;
+    if (token) Capture.saveAccessToken({ token }).catch(() => undefined);
+    else Capture.getAccessToken().then(({ token: saved }) => { if (saved) setToken(saved); }).catch(() => undefined);
+  }, [nativeAndroid, token]);
+
+  useEffect(() => {
+    if (!nativeAndroid) return;
+    Capture.listDrafts().then(({ drafts }) => { if (drafts.length) setView("inbox"); }).catch(() => undefined);
+    let handle: { remove(): Promise<void> } | undefined;
+    Capture.addListener("draftAvailable", () => setView("inbox")).then((listener) => { handle = listener; });
+    return () => { handle?.remove(); };
+  }, [nativeAndroid]);
 
   useEffect(() => {
     localStorage.setItem("monthlySpendSanrioCharacter", sanrioCharacter.name);
@@ -202,7 +218,8 @@ export default function App() {
   const unlock = async () => {
     const next = tokenInput.trim();
     if (!next) return;
-    localStorage.setItem("monthlySpendAccess", next);
+    if (nativeAndroid) await Capture.saveAccessToken({ token: next });
+    else localStorage.setItem("monthlySpendAccess", next);
     await setConfig("accessToken", next);
     setToken(next);
     setTokenInput("");
@@ -238,16 +255,18 @@ export default function App() {
 
       <ThemePicker theme={theme} onChange={setTheme} />
 
-      <nav className="view-tabs" aria-label="App sections">
+      <nav className={`view-tabs ${nativeAndroid ? "three" : ""}`} aria-label="App sections">
         <button className={view === "expenses" ? "active" : ""} onClick={() => setView("expenses")}>＋ Expenses</button>
         <button className={view === "insights" ? "active" : ""} onClick={() => setView("insights")}>⌁ Insights</button>
+        {nativeAndroid && <button className={view === "inbox" ? "active" : ""} onClick={() => setView("inbox")}>▣ Inbox</button>}
       </nav>
 
       {theme === "sanrio" && view === "expenses" && (
         <SanrioFriends selected={sanrioCharacter.name} onSelect={setSanrioCharacter} />
       )}
 
-      {view === "insights" ? <AnalyticsView date={date} token={token} online={online} /> : <>
+      {view === "insights" ? <AnalyticsView date={date} token={token} online={online} />
+        : view === "inbox" ? <CaptureInbox token={token} online={online} /> : <>
 
       <section className="date-card">
         <label htmlFor="spend-date">Entry date</label>
@@ -370,6 +389,107 @@ function AnalyticsView({ date, token, online }: { date: string; token: string; o
       <ul>{analytics.insights.map((insight) => <li key={insight}>{insight}</li>)}</ul>
     </article>
   </section>;
+}
+
+function CaptureInbox({ token, online }: { token: string; online: boolean }) {
+  const [drafts, setDrafts] = useState<CaptureDraft[]>([]);
+  const [permission, setPermission] = useState(false);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const [{ drafts: next }, access] = await Promise.all([Capture.listDrafts(), Capture.notificationAccess()]);
+    setDrafts(next);
+    setPermission(access.granted);
+  }, []);
+
+  useEffect(() => {
+    Capture.ensureNotificationPermission().catch(() => undefined);
+    refresh().catch(() => setMessage("Could not read the local capture inbox."));
+    window.addEventListener("focus", refresh);
+    let handle: { remove(): Promise<void> } | undefined;
+    Capture.addListener("draftAvailable", refresh).then((listener) => { handle = listener; });
+    return () => { handle?.remove(); window.removeEventListener("focus", refresh); };
+  }, [refresh]);
+
+  const scan = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await Capture.scanImage();
+      await refresh();
+      setMessage(result.created ? "Image scanned. Review the new draft below." : "No transaction amount was found.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Image scan was cancelled.");
+    } finally { setBusy(false); }
+  };
+
+  return <section className="capture-view">
+    <div className="capture-heading"><div><span className="eyebrow">On-device capture</span><h2>Transaction inbox</h2></div>
+      <button className="scan-button" disabled={busy} onClick={scan}>▧ Scan image</button>
+    </div>
+    <article className={`permission-card ${permission ? "granted" : ""}`}>
+      <div><strong>{permission ? "Notification access enabled" : "Enable notification access"}</strong>
+        <p>{permission ? "Likely payments will appear here as drafts." : "Android requires approval in system settings."}</p></div>
+      {!permission && <button onClick={() => Capture.openNotificationAccess()}>Open settings</button>}
+    </article>
+    {!online && <p className="capture-notice">You can review drafts offline, but confirmation needs internet.</p>}
+    {message && <p className="capture-notice">{message}</p>}
+    <div className="draft-list">
+      {drafts.length === 0 ? <div className="empty-inbox"><span>♡</span><strong>Inbox is clear</strong><p>Payment notifications and scanned images will wait here for review.</p></div>
+        : drafts.map((draft) => <DraftCard draft={draft} token={token} online={online} key={draft.id}
+          onDone={async () => { await refresh(); setMessage("Transaction handled."); }} />)}
+    </div>
+    <p className="privacy-note">Raw notification text and images are discarded after local parsing. Only confirmed fields are sent.</p>
+  </section>;
+}
+
+function DraftCard({ draft, token, online, onDone }: {
+  draft: CaptureDraft; token: string; online: boolean; onDone: () => Promise<void>;
+}) {
+  const [amount, setAmount] = useState(draft.amount?.toString() ?? "");
+  const [merchant, setMerchant] = useState(draft.merchant);
+  const [date, setDate] = useState(draft.date);
+  const [category, setCategory] = useState<ExpenseKey | "">(draft.category ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const confirm = async () => {
+    const numericAmount = Number(amount);
+    if (!online) { setError("Connect to the internet before confirming."); return; }
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) { setError("Enter a valid amount."); return; }
+    if (draft.type === "DEBIT" && !category) { setError("Choose a category for this expense."); return; }
+    setSaving(true); setError("");
+    try {
+      const { deviceId } = await Capture.deviceId();
+      await recordTransaction({
+        eventId: draft.eventId, date, occurredAt: draft.occurredAt, type: draft.type,
+        amount: numericAmount, ...(category ? { category } : {}), merchant: merchant.trim(),
+        source: draft.source, captureMethod: draft.captureMethod, deviceId
+      }, token);
+      await Capture.completeDraft({ id: draft.id, merchant: merchant.trim(), ...(category ? { category } : {}) });
+      await onDone();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not confirm transaction."); }
+    finally { setSaving(false); }
+  };
+
+  const dismiss = async () => { await Capture.dismissDraft({ id: draft.id }); await onDone(); };
+
+  return <article className="draft-card">
+    <div className="draft-title"><span className={`type-badge ${draft.type.toLowerCase()}`}>{draft.type === "DEBIT" ? "Expense" : "Credit · log only"}</span>
+      <small>{draft.captureMethod === "IMAGE" ? "Image" : draft.source}</small></div>
+    <div className="draft-fields">
+      <label><span>Amount</span><div className="amount-input"><b>₹</b><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></div></label>
+      <label><span>Date</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      <label className="wide"><span>Merchant</span><input value={merchant} maxLength={160} onChange={(event) => setMerchant(event.target.value)} /></label>
+      {draft.type === "DEBIT" && <label className="wide"><span>Category</span><select value={category} onChange={(event) => setCategory(event.target.value as ExpenseKey | "")}>
+        <option value="">Choose category</option>{expenseFields.map((field) => <option value={field.key} key={field.key}>{field.label}</option>)}
+      </select></label>}
+    </div>
+    {error && <p className="draft-error">{error}</p>}
+    <div className="draft-actions"><button className="dismiss-button" onClick={dismiss}>Dismiss</button>
+      <button className="confirm-button" disabled={saving} onClick={confirm}>{saving ? "Saving…" : draft.type === "DEBIT" ? "Add expense" : "Log credit"}</button></div>
+  </article>;
 }
 
 function ThemePicker({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {

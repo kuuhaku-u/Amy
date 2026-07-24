@@ -133,6 +133,7 @@ h2 { font-size: 1.8rem; }
 .lock-screen .theme-picker { margin: -8vh auto 9vh; }
 
 .view-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 0 0 18px; padding: 5px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.view-tabs.three { grid-template-columns: repeat(3, 1fr); }
 .view-tabs button { border: 0; border-radius: 11px; padding: 11px; color: var(--muted); background: transparent; font-size: .78rem; font-weight: 700; }
 .view-tabs button.active { color: white; background: var(--forest); box-shadow: 0 4px 12px var(--shadow); }
 
@@ -174,6 +175,40 @@ h2 { font-size: 1.8rem; }
 .insight-card ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .insight-card li { position: relative; padding: 11px 12px 11px 35px; border-radius: 12px; color: var(--soft-text); background: var(--soft); font-size: .78rem; line-height: 1.45; }
 .insight-card li::before { content: "✦"; position: absolute; left: 13px; color: var(--gold); }
+
+.capture-view { display: grid; gap: 14px; padding-bottom: 30px; }
+.capture-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.scan-button, .permission-card button, .confirm-button, .dismiss-button { border: 0; border-radius: 11px; padding: 10px 12px; font-size: .72rem; font-weight: 700; }
+.scan-button, .confirm-button { color: white; background: var(--forest); }
+.scan-button:disabled, .confirm-button:disabled { opacity: .55; }
+.permission-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.permission-card strong { font-size: .82rem; }
+.permission-card p { margin: 4px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+.permission-card button { flex: 0 0 auto; color: var(--soft-text); background: var(--soft); }
+.permission-card.granted { border-color: var(--success-text); background: var(--success-bg); }
+.capture-notice { margin: 0; padding: 10px 12px; border-radius: 11px; color: var(--soft-text); background: var(--soft); font-size: .72rem; }
+.draft-list { display: grid; gap: 12px; }
+.empty-inbox { display: grid; place-items: center; min-height: 210px; padding: 25px; border: 1px dashed var(--line); border-radius: 18px; color: var(--muted); background: var(--paper); text-align: center; }
+.empty-inbox > span { color: var(--gold); font-size: 2rem; }
+.empty-inbox strong { margin: 8px 0 0; color: inherit; }
+.empty-inbox p { max-width: 270px; margin: 5px 0; font-size: .72rem; line-height: 1.5; }
+.draft-card { padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); box-shadow: 0 6px 20px var(--shadow); }
+.draft-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.draft-title small { overflow: hidden; color: var(--muted); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
+.type-badge { padding: 5px 8px; border-radius: 99px; color: var(--error-text); background: var(--error-bg); font-size: .63rem; font-weight: 700; }
+.type-badge.credit { color: var(--success-text); background: var(--success-bg); }
+.draft-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.draft-fields label { min-width: 0; }
+.draft-fields label.wide { grid-column: 1 / -1; }
+.draft-fields label > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: .64rem; font-weight: 700; text-transform: uppercase; }
+.draft-fields input, .draft-fields select { width: 100%; min-height: 41px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; color: inherit; background: var(--cream); outline: none; }
+.amount-input { display: grid; grid-template-columns: auto 1fr; align-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--cream); }
+.amount-input b { padding-left: 10px; }
+.amount-input input { border: 0; background: transparent; }
+.draft-error { margin: 10px 0 0; color: var(--error-text); font-size: .7rem; }
+.draft-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; margin-top: 14px; }
+.dismiss-button { color: var(--muted); background: var(--soft); }
+.privacy-note { margin: 2px auto 0; max-width: 410px; color: var(--muted); font-size: .62rem; line-height: 1.5; text-align: center; }
 
 :root[data-theme="dark"] .summary-card.accent { color: #221b0d; }
 :root[data-theme="dark"] .date-card, :root[data-theme="dark"] .primary-button, :root[data-theme="dark"] .theme-picker button.active { color: #1a160d; }

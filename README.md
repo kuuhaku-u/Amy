@@ -4,6 +4,10 @@ The app also includes a free Insights screen with daily spending bars, monthly c
 week-over-week comparisons, and deterministic observations calculated by the Java backend. It uses
 no AI service or paid analytics API.
 
+The optional private Android APK adds on-device payment-notification detection and receipt/payment-
+screenshot OCR. Every match is an editable draft: nothing changes the sheet until the user confirms it.
+Raw notification text and images are discarded after parsing.
+
 An Android-installable expense form backed by Spring Boot and Google Sheets. The app loads or creates one row per full date in the first `Monthly Spend` worksheet, supports offline saves, and updates only fields changed by the user.
 
 ## What is included
@@ -293,6 +297,7 @@ Press `Ctrl+C` once to stop both processes.
 | `GOOGLE_CREDENTIALS_JSON` | empty | Complete credentials JSON for hosted environments |
 | `SPREADSHEET_ID` | supplied spreadsheet ID | Destination spreadsheet |
 | `SHEET_NAME` | `Monthy Spend ` | Exact worksheet title, including its trailing space |
+| `APP_CORS_ALLOWED_ORIGINS` | `https://localhost` | Exact comma-separated native WebView origins allowed to call the API |
 | `PORT` | `8080` | HTTP port |
 
 `credentials.json`, `.dev.vars`, compiled output, and dependency directories are git-ignored.
@@ -342,3 +347,77 @@ The repository includes `render.yaml`, which defines one free Docker web service
 5. Open `https://YOUR-SERVICE.onrender.com/#access=YOUR-APP-ACCESS-TOKEN`.
 
 Never put either secret directly in `render.yaml` or commit `credentials.json`.
+
+## Private Android APK
+
+The Android project is a Capacitor wrapper around the same React UI. Android-only code lives under
+`android/` and adds:
+
+- explicit system notification-listener access;
+- a local encrypted-token store and private SQLite draft inbox;
+- conservative debit/credit parsing with OTP rejection;
+- gallery and Android image-share imports;
+- bundled ML Kit OCR that runs on the phone; and
+- merchant-to-category suggestions learned only on that device.
+
+The listener can technically receive notifications from every app after approval, but it immediately
+discards messages that do not contain a supported currency amount and transaction wording. Raw text is
+never added to SQLite or sent to the server. Credits are logged in `Transaction Log` with status `LOGGED`
+and do not reduce the daily summary. Confirmed debits are logged with status `APPLIED` and increment the
+chosen daily category. Event IDs prevent retries from adding the same transaction twice.
+
+### Local Android development
+
+Install Android Studio with Android SDK 35 and set `ANDROID_HOME`, then build the bundled web UI and sync it:
+
+```bash
+VITE_API_BASE_URL=https://YOUR-SERVICE.onrender.com npm run android:sync
+cd android
+./gradlew assembleDebug
+```
+
+The debug APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`. Install it only on a
+device you control. Open **Inbox**, approve Android notification access, and optionally approve this app's
+own notification permission so it can alert you when a draft is waiting.
+
+### One-time signing setup
+
+Create one release key and keep it backed up securely. Losing it means later APKs cannot update the
+installed app:
+
+```bash
+keytool -genkeypair -v -keystore monthly-spend-release.jks -alias monthly-spend \
+  -keyalg RSA -keysize 2048 -validity 10000
+base64 -w 0 monthly-spend-release.jks
+```
+
+On macOS, use `base64 -i monthly-spend-release.jks` for the second command. Do not copy the keystore into
+the repository.
+
+In GitHub **Settings → Secrets and variables → Actions**, add repository variable:
+
+- `RENDER_API_BASE_URL`: the Render origin only, such as `https://monthly-spend-pwa.onrender.com`.
+
+Add repository secrets:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Run the **Android APK** workflow manually for an artifact, or publish a private release with:
+
+```bash
+git tag android-v1.0.0
+git push origin android-v1.0.0
+```
+
+Download `monthly-spend.apk` from the workflow artifact or tagged GitHub release. Both users must install
+APKs signed by the same key for in-place updates.
+
+### Transaction capture API
+
+`POST /api/monthly-spend/transactions` uses the same bearer token as the rest of the API. The Android app
+sends only the confirmed event ID, date/time, debit or credit type, amount, optional category and merchant,
+source identifier, capture method, and random device ID. On first use, the backend creates the
+`Transaction Log` worksheet and validates its headers on every write.

@@ -3,11 +3,14 @@ package app.monthlyspend.api;
 import app.monthlyspend.sheet.MonthlySpendModels.SpendResponse;
 import app.monthlyspend.sheet.MonthlySpendModels.AnalyticsResponse;
 import app.monthlyspend.sheet.MonthlySpendModels.UpdateRequest;
+import app.monthlyspend.sheet.MonthlySpendModels.TransactionRequest;
+import app.monthlyspend.sheet.MonthlySpendModels.TransactionResponse;
 import app.monthlyspend.sheet.MonthlySpendService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -37,5 +40,10 @@ public class MonthlySpendController {
     @GetMapping("/analytics")
     AnalyticsResponse analytics(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return service.analytics(date);
+    }
+
+    @PostMapping("/transactions")
+    TransactionResponse transaction(@Valid @RequestBody TransactionRequest request) {
+        return service.recordTransaction(request);
     }
 }

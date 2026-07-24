@@ -8,6 +8,6 @@ public record AppProperties(
         String sheetName,
         String accessToken,
         String googleCredentialsJson,
-        String googleCredentialsFile
+        String googleCredentialsFile,
+        String corsAllowedOrigins
 ) {}
-

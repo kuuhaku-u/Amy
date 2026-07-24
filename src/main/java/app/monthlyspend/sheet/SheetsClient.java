@@ -15,6 +15,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class SheetsClient {
@@ -55,6 +56,34 @@ public class SheetsClient {
     public void batchUpdateValues(List<Map<String, Object>> data) {
         var body = Map.of("valueInputOption", "USER_ENTERED", "data", data);
         send("POST", BASE_URL + properties.spreadsheetId() + "/values:batchUpdate", body);
+    }
+
+    public Map<String, Integer> sheetIds() {
+        var response = send("GET", BASE_URL + properties.spreadsheetId()
+                + "?fields=sheets.properties(sheetId,title)", null);
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(response, new TypeReference<>() {});
+            var result = new LinkedHashMap<String, Integer>();
+            var sheetList = objectMapper.convertValue(parsed.getOrDefault("sheets", List.of()),
+                    new TypeReference<List<Map<String, Object>>>() {});
+            for (var sheet : sheetList) {
+                var sheetProperties = objectMapper.convertValue(sheet.get("properties"),
+                        new TypeReference<Map<String, Object>>() {});
+                result.put(sheetProperties.get("title").toString(),
+                        ((Number) sheetProperties.get("sheetId")).intValue());
+            }
+            return result;
+        } catch (IOException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Google Sheets returned unreadable worksheet metadata.");
+        }
+    }
+
+    public void addSheet(String title) {
+        batchUpdateSpreadsheet(List.of(Map.of("addSheet", Map.of("properties", Map.of("title", title)))));
+    }
+
+    public void batchUpdateSpreadsheet(List<Map<String, Object>> requests) {
+        send("POST", BASE_URL + properties.spreadsheetId() + ":batchUpdate", Map.of("requests", requests));
     }
 
     public void formatDateColumn(int startRowIndex, int endRowIndex) {
