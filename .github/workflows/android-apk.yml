@@ -49,6 +49,16 @@ jobs:
       - name: Restore signing key
         run: printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/release.jks
 
+      - name: Validate signing key
+        run: |
+          keytool -list \
+            -keystore "$ANDROID_KEYSTORE_PATH" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null || {
+              echo "The keystore, password, or alias in the sec environment do not match."
+              exit 1
+            }
+
       - run: npm ci
       - run: npm run android:sync
 
