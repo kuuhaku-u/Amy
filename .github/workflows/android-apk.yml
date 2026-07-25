@@ -15,11 +15,6 @@ jobs:
     environment: sec
     env:
       VITE_API_BASE_URL: ${{ vars.RENDER_API_BASE_URL }}
-      ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/release.jks
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       ANDROID_VERSION_CODE: ${{ github.run_number }}
       ANDROID_VERSION_NAME: ${{ github.ref_name }}
     steps:
@@ -41,33 +36,16 @@ jobs:
       - name: Validate build configuration
         run: |
           test -n "$VITE_API_BASE_URL" || { echo "Set repository variable RENDER_API_BASE_URL"; exit 1; }
-          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "Set Android signing secrets"; exit 1; }
-          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "Set ANDROID_KEYSTORE_PASSWORD"; exit 1; }
-          test -n "$ANDROID_KEY_ALIAS" || { echo "Set ANDROID_KEY_ALIAS"; exit 1; }
-          test -n "$ANDROID_KEY_PASSWORD" || { echo "Set ANDROID_KEY_PASSWORD"; exit 1; }
-
-      - name: Restore signing key
-        run: printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/release.jks
-
-      - name: Validate signing key
-        run: |
-          keytool -list \
-            -keystore "$ANDROID_KEYSTORE_PATH" \
-            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" >/dev/null || {
-              echo "The keystore, password, or alias in the sec environment do not match."
-              exit 1
-            }
 
       - run: npm ci
       - run: npm run android:sync
 
-      - name: Build signed APK
+      - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleDebug
 
       - name: Stage APK
-        run: cp android/app/build/outputs/apk/release/app-release.apk monthly-spend.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk monthly-spend.apk
 
       - uses: actions/upload-artifact@v4
         with:
