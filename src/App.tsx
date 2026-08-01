@@ -3,6 +3,7 @@ import { ApiError, createSheet, loadAnalytics, loadDate, loadSheets, recordTrans
 import { enqueue, queuedItems, setConfig } from "./db";
 import { expenseFields, type AnalyticsResponse, type ExpenseKey, type SpendResponse } from "./types";
 import { Capture, isNativeAndroid, type CaptureDraft } from "./native";
+import MoneyManager from "./MoneyManager";
 
 type FormValues = Record<ExpenseKey, string>;
 type Comments = Record<ExpenseKey, string>;
@@ -99,16 +100,18 @@ export default function App() {
   const [loadedValues, setLoadedValues] = useState<FormValues>(emptyValues);
   const [touched, setTouched] = useState<Set<ExpenseKey>>(new Set());
   const [comments, setComments] = useState<Comments>(emptyComments);
+  const [loadedComments, setLoadedComments] = useState<Comments>(emptyComments);
   const [touchedComments, setTouchedComments] = useState<Set<ExpenseKey>>(new Set());
   const [summary, setSummary] = useState({ total: 0, weekTotal: 0, monthlySpend: 0 });
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
-  const [view, setView] = useState<"expenses" | "insights" | "inbox">("expenses");
+  const [view, setView] = useState<"expenses" | "insights" | "money" | "inbox">("expenses");
   const [sheets, setSheets] = useState<string[]>([]);
   const [sheet, setSheet] = useState(() => localStorage.getItem("monthlySpendSheet") || "");
   const [creatingSheet, setCreatingSheet] = useState(false);
+  const [undoSnapshot, setUndoSnapshot] = useState<{ date: string; sheet: string; values: FormValues; comments: Comments } | null>(null);
   const nativeAndroid = isNativeAndroid();
 
   const refreshPending = useCallback(async () => setPendingCount((await queuedItems()).length), []);
@@ -211,7 +214,8 @@ export default function App() {
     const nextValues = Object.fromEntries(expenseFields.map(({ key }) => [key, response.values[key] ?? ""])) as FormValues;
     setValues(nextValues);
     setLoadedValues(nextValues);
-    setComments(Object.fromEntries(expenseFields.map(({ key }) => [key, response.comments?.[key] ?? ""])) as Comments);
+    const nextComments = Object.fromEntries(expenseFields.map(({ key }) => [key, response.comments?.[key] ?? ""])) as Comments;
+    setComments(nextComments); setLoadedComments(nextComments);
     setSummary({ total: response.total, weekTotal: response.weekTotal, monthlySpend: response.monthlySpend });
     setTouched(new Set());
     setTouchedComments(new Set());
@@ -260,6 +264,7 @@ export default function App() {
     setLoadedValues(emptyValues());
     setTouched(new Set());
     setComments(emptyComments());
+    setLoadedComments(emptyComments());
     setTouchedComments(new Set());
     setSummary({ total: 0, weekTotal: 0, monthlySpend: 0 });
   };
@@ -278,6 +283,7 @@ export default function App() {
     }
     // Include a comment's associated amount so comment-only saves also work with
     // servers that still require at least one amount field in every update.
+    const beforeSave = { date, sheet, values: { ...loadedValues }, comments: { ...loadedComments } };
     const changedAmountKeys = new Set([...touched, ...touchedComments]);
     const changes = Object.fromEntries(
       [...changedAmountKeys].map((key) => [key, values[key] === "" ? null : Number(values[key])])
@@ -301,6 +307,7 @@ export default function App() {
         await refreshPending();
         const response = await loadDate(date, sheet, token);
         applyResponse(response);
+        setUndoSnapshot(beforeSave);
         setStatus("saved");
         setMessage("Saved to Monthly Spend.");
       } catch (error) {
@@ -308,6 +315,21 @@ export default function App() {
         setMessage(error instanceof Error ? error.message : "Still queued for sync.");
       }
     }
+  };
+
+  const undoLastSave = async () => {
+    if (!undoSnapshot || !online) return;
+    setStatus("saving"); setMessage("Undoing last save…");
+    const changes = Object.fromEntries(expenseFields.map(({ key }) => [key, undoSnapshot.values[key] === "" ? null : Number(undoSnapshot.values[key])]));
+    await enqueue({ submissionId: crypto.randomUUID(), date: undoSnapshot.date, sheetName: undoSnapshot.sheet,
+      changes, comments: undoSnapshot.comments, createdAt: Date.now() });
+    try {
+      await syncQueued(token);
+      const response = await loadDate(undoSnapshot.date, undoSnapshot.sheet, token);
+      if (date === undoSnapshot.date && sheet === undoSnapshot.sheet) applyResponse(response);
+      setUndoSnapshot(null); setStatus("saved"); setMessage("Last save was undone.");
+    } catch (error) { setStatus("error"); setMessage(error instanceof Error ? error.message : "Could not undo the save."); }
+    await refreshPending();
   };
 
   const addMonthlySheet = async () => {
@@ -363,9 +385,10 @@ export default function App() {
 
       <ThemePicker theme={theme} onChange={setTheme} />
 
-      <nav className={`view-tabs ${nativeAndroid ? "three" : ""}`} aria-label="App sections">
+      <nav className={`view-tabs ${nativeAndroid ? "four" : "three"}`} aria-label="App sections">
         <button className={view === "expenses" ? "active" : ""} onClick={() => setView("expenses")}>＋ Expenses</button>
         <button className={view === "insights" ? "active" : ""} onClick={() => setView("insights")}>⌁ Insights</button>
+        <button className={view === "money" ? "active" : ""} onClick={() => setView("money")}>₹ Money</button>
         {nativeAndroid && <button className={view === "inbox" ? "active" : ""} onClick={() => setView("inbox")}>▣ Inbox</button>}
       </nav>
 
@@ -381,6 +404,7 @@ export default function App() {
       </section>
 
       {view === "insights" ? <AnalyticsView date={date} sheet={sheet} sheets={sheets} token={token} online={online} onDateChange={changeDate} />
+        : view === "money" ? <MoneyManager date={date} sheet={sheet} token={token} online={online} />
         : view === "inbox" ? <CaptureInbox sheet={sheet} token={token} online={online} /> : <>
 
       <section className="date-card">
@@ -433,6 +457,7 @@ export default function App() {
       <div className={`status-message ${status}`} role="status">
         <span>{status === "saving" || status === "loading" ? "↻" : status === "saved" ? "✓" : status === "error" ? "!" : status === "queued" ? "↑" : "•"}</span>
         <p>{message || "Only changed fields will be updated."}</p>
+        {undoSnapshot && online && status !== "saving" && <button className="undo-button" onClick={undoLastSave}>Undo</button>}
       </div>
 
       <footer className="save-bar">

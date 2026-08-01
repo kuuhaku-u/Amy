@@ -1,5 +1,5 @@
 import { queuedItems, removeQueued } from "./db";
-import type { AnalyticsResponse, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
+import type { AnalyticsResponse, CashflowResponse, HistoryEntry, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -38,6 +38,14 @@ export function loadSheets(token: string): Promise<SheetInfo[]> {
 
 export function createSheet(name: string, sourceSheet: string, token: string): Promise<SheetInfo> {
   return request("/api/monthly-spend/sheets", token, { method: "POST", body: JSON.stringify({ name, sourceSheet }) });
+}
+
+export function loadHistory(from: string, to: string, sheet: string, token: string): Promise<HistoryEntry[]> {
+  return request(`/api/monthly-spend/history?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&sheet=${encodeURIComponent(sheet)}`, token);
+}
+
+export function loadCashflow(token: string): Promise<CashflowResponse> {
+  return request("/api/monthly-spend/cashflow", token);
 }
 
 export function recordTransaction(transaction: TransactionRequest, token: string): Promise<TransactionResponse> {

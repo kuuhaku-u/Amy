@@ -25,6 +25,9 @@ public final class MonthlySpendModels {
     ) {}
 
     public record SheetInfo(String name) {}
+    public record HistoryEntry(LocalDate date, Map<String, BigDecimal> values,
+                               Map<String, String> comments, BigDecimal total) {}
+    public record CashflowResponse(String sheetName, List<List<Object>> rows) {}
     public record CreateSheetRequest(
             @NotBlank @Size(max = 100) String name,
             @NotBlank @Size(max = 100) String sourceSheet

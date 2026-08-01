@@ -54,6 +54,17 @@ public class MonthlySpendController {
         return service.createSheet(request);
     }
 
+    @GetMapping("/history")
+    List<MonthlySpendModels.HistoryEntry> history(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String sheet) {
+        return service.history(from, to, sheet);
+    }
+
+    @GetMapping("/cashflow")
+    MonthlySpendModels.CashflowResponse cashflow() { return service.cashflow(); }
+
     @PostMapping("/transactions")
     TransactionResponse transaction(@Valid @RequestBody TransactionRequest request) {
         return service.recordTransaction(request);

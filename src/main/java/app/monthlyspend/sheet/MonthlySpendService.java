@@ -279,6 +279,33 @@ public class MonthlySpendService {
                 .map(SheetInfo::new).toList();
     }
 
+    public List<MonthlySpendModels.HistoryEntry> history(LocalDate from, LocalDate to, String requestedSheet) {
+        if (to.isBefore(from)) throw new ApiException(HttpStatus.BAD_REQUEST, "The end date must not be before the start date.");
+        return loadRows(resolveSheet(requestedSheet)).stream()
+                .filter(row -> !row.date.isBefore(from) && !row.date.isAfter(to))
+                .sorted(Comparator.comparing((SheetRow row) -> row.date).reversed())
+                .map(row -> {
+                    var values = new LinkedHashMap<String, BigDecimal>();
+                    var comments = new LinkedHashMap<String, String>();
+                    for (var field : ExpenseField.values()) {
+                        values.put(field.key(), row.values.get(field));
+                        comments.put(field.key(), row.comments.getOrDefault(field, ""));
+                    }
+                    return new MonthlySpendModels.HistoryEntry(row.date, values, comments, allExpenseTotal(row));
+                }).toList();
+    }
+
+    public MonthlySpendModels.CashflowResponse cashflow() {
+        var name = sheets.sheetIds().keySet().stream()
+                .filter(item -> item.trim().equalsIgnoreCase("Cashflow") || item.trim().equalsIgnoreCase("Cash Flow"))
+                .findFirst().orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                        "A Cashflow worksheet was not found."));
+        var rows = sheets.readValues(quotedSheet(name) + "!A:Z").stream()
+                .filter(row -> row.stream().anyMatch(value -> value != null && !value.toString().isBlank()))
+                .toList();
+        return new MonthlySpendModels.CashflowResponse(name, rows);
+    }
+
     public SheetInfo createSheet(CreateSheetRequest request) {
         updateLock.lock();
         try {
