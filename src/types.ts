@@ -17,6 +17,7 @@ export interface SpendResponse {
   date: string;
   exists: boolean;
   values: ExpenseValues;
+  comments: Partial<Record<ExpenseKey, string>>;
   total: number;
   weekTotal: number;
   monthlySpend: number;
@@ -38,6 +39,7 @@ export interface AnalyticsResponse {
 export interface TransactionRequest {
   eventId: string;
   date: string;
+  sheetName?: string;
   occurredAt: string;
   type: "DEBIT" | "CREDIT";
   amount: number;
@@ -57,6 +59,10 @@ export interface TransactionResponse {
 export interface QueuedSubmission {
   submissionId: string;
   date: string;
+  sheetName?: string;
   changes: Partial<Record<ExpenseKey, number | null>>;
+  comments?: Partial<Record<ExpenseKey, string>>;
   createdAt: number;
 }
+
+export interface SheetInfo { name: string; }

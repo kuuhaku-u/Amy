@@ -1,5 +1,5 @@
 import { queuedItems, removeQueued } from "./db";
-import type { AnalyticsResponse, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
+import type { AnalyticsResponse, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -24,12 +24,20 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
   return body as T;
 }
 
-export function loadDate(date: string, token: string): Promise<SpendResponse> {
-  return request(`/api/monthly-spend?date=${encodeURIComponent(date)}`, token);
+export function loadDate(date: string, sheet: string, token: string): Promise<SpendResponse> {
+  return request(`/api/monthly-spend?date=${encodeURIComponent(date)}&sheet=${encodeURIComponent(sheet)}`, token);
 }
 
-export function loadAnalytics(date: string, token: string): Promise<AnalyticsResponse> {
-  return request(`/api/monthly-spend/analytics?date=${encodeURIComponent(date)}`, token);
+export function loadAnalytics(date: string, sheet: string, token: string): Promise<AnalyticsResponse> {
+  return request(`/api/monthly-spend/analytics?date=${encodeURIComponent(date)}&sheet=${encodeURIComponent(sheet)}`, token);
+}
+
+export function loadSheets(token: string): Promise<SheetInfo[]> {
+  return request("/api/monthly-spend/sheets", token);
+}
+
+export function createSheet(name: string, sourceSheet: string, token: string): Promise<SheetInfo> {
+  return request("/api/monthly-spend/sheets", token, { method: "POST", body: JSON.stringify({ name, sourceSheet }) });
 }
 
 export function recordTransaction(transaction: TransactionRequest, token: string): Promise<TransactionResponse> {

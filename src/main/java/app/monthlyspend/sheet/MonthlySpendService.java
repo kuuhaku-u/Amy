@@ -28,6 +28,8 @@ import static app.monthlyspend.sheet.MonthlySpendModels.DailySpend;
 import static app.monthlyspend.sheet.MonthlySpendModels.WeekComparison;
 import static app.monthlyspend.sheet.MonthlySpendModels.TransactionRequest;
 import static app.monthlyspend.sheet.MonthlySpendModels.TransactionResponse;
+import static app.monthlyspend.sheet.MonthlySpendModels.CreateSheetRequest;
+import static app.monthlyspend.sheet.MonthlySpendModels.SheetInfo;
 
 @Service
 public class MonthlySpendService {
@@ -62,16 +64,19 @@ public class MonthlySpendService {
         this.properties = properties;
     }
 
-    public SpendResponse get(LocalDate date) {
-        var rows = loadRows();
+    public SpendResponse get(LocalDate date) { return get(date, null); }
+
+    public SpendResponse get(LocalDate date, String requestedSheet) {
+        var sheetName = resolveSheet(requestedSheet);
+        var rows = loadRows(sheetName);
         ensureUniqueDates(rows);
         return rows.stream().filter(row -> date.equals(row.date)).findFirst()
                 .map(row -> response(row, true))
                 .orElseGet(() -> emptyResponse(date));
     }
 
-    public AnalyticsResponse analytics(LocalDate anchor) {
-        var rows = loadRows();
+    public AnalyticsResponse analytics(LocalDate anchor, String requestedSheet) {
+        var rows = loadRows(resolveSheet(requestedSheet));
         ensureUniqueDates(rows);
         var month = YearMonth.from(anchor);
         var previousMonth = month.minusMonths(1);
@@ -120,18 +125,19 @@ public class MonthlySpendService {
     }
 
     public SpendResponse update(UpdateRequest request) {
-        validateChanges(request.changes());
+            validateChanges(request.changes(), request.comments());
         updateLock.lock();
         try {
             var cached = recentSubmissions.get(request.submissionId());
             if (cached != null) return cached;
 
-            var rows = loadRows();
+            var sheetName = resolveSheet(request.sheetName());
+            var rows = loadRows(sheetName);
             ensureUniqueDates(rows);
             var row = rows.stream().filter(item -> request.date().equals(item.date)).findFirst().orElse(null);
             if (row == null) {
-                sheets.appendRow(quotedSheet() + "!A:M", List.of(dateFormula(request.date())));
-                rows = loadRows();
+                sheets.appendRow(quotedSheet(sheetName) + "!A:M", List.of(dateFormula(request.date())));
+                rows = loadRows(sheetName);
                 ensureUniqueDates(rows);
                 row = rows.stream().filter(item -> request.date().equals(item.date)).findFirst()
                         .orElseThrow(() -> new ApiException(HttpStatus.BAD_GATEWAY,
@@ -142,7 +148,13 @@ public class MonthlySpendService {
                 row.values.put(ExpenseField.byKey().get(change.getKey()), normalize(change.getValue()));
             }
             calculate(rows);
-            writeRows(rows, row, request.changes());
+            if (request.comments() != null) {
+                for (var comment : request.comments().entrySet()) {
+                    row.comments.put(ExpenseField.byKey().get(comment.getKey()),
+                            comment.getValue() == null ? "" : comment.getValue().trim());
+                }
+            }
+            writeRows(sheetName, rows, row, request.changes(), request.comments());
             var response = response(row, true);
             recentSubmissions.put(request.submissionId(), response);
             return response;
@@ -162,7 +174,8 @@ public class MonthlySpendService {
 
             ExpenseField field = null;
             SheetRow edited = null;
-            var rows = loadRows();
+            var sheetName = resolveSheet(request.sheetName());
+            var rows = loadRows(sheetName);
             ensureUniqueDates(rows);
             if (request.type() == MonthlySpendModels.TransactionType.DEBIT) {
                 field = ExpenseField.byKey().get(request.category());
@@ -170,8 +183,8 @@ public class MonthlySpendService {
                         "A valid category is required for a debit transaction.");
                 edited = rows.stream().filter(row -> request.date().equals(row.date)).findFirst().orElse(null);
                 if (edited == null) {
-                    sheets.appendRow(quotedSheet() + "!A:M", List.of(dateFormula(request.date())));
-                    rows = loadRows();
+                    sheets.appendRow(quotedSheet(sheetName) + "!A:M", List.of(dateFormula(request.date())));
+                    rows = loadRows(sheetName);
                     ensureUniqueDates(rows);
                     edited = rows.stream().filter(row -> request.date().equals(row.date)).findFirst()
                             .orElseThrow(() -> new ApiException(HttpStatus.BAD_GATEWAY,
@@ -182,7 +195,7 @@ public class MonthlySpendService {
             }
 
             var sheetIds = sheets.sheetIds();
-            var summarySheetId = sheetIds.get(properties.sheetName());
+            var summarySheetId = sheetIds.get(sheetName);
             if (summarySheetId == null) throw new ApiException(HttpStatus.CONFLICT, "The summary worksheet is missing.");
             var batch = new ArrayList<Map<String, Object>>();
             batch.add(appendTransactionRequest(transactionSheetId, request,
@@ -190,7 +203,7 @@ public class MonthlySpendService {
             if (edited != null) addSummaryGridUpdates(batch, summarySheetId, rows, edited, field);
             sheets.batchUpdateSpreadsheet(batch);
             return new TransactionResponse("CREATED", edited != null,
-                    edited == null ? get(request.date()) : response(edited, true));
+                    edited == null ? get(request.date(), sheetName) : response(edited, true));
         } finally {
             updateLock.unlock();
         }
@@ -260,8 +273,38 @@ public class MonthlySpendService {
         return Map.of("userEnteredValue", Map.of("numberValue", zero(value)));
     }
 
-    private List<SheetRow> loadRows() {
-        var raw = sheets.readValues(quotedSheet() + "!A" + HEADER_ROW + ":M");
+    public List<SheetInfo> sheets() {
+        return sheets.sheetIds().keySet().stream()
+                .filter(this::hasExpectedHeaders)
+                .map(SheetInfo::new).toList();
+    }
+
+    public SheetInfo createSheet(CreateSheetRequest request) {
+        updateLock.lock();
+        try {
+            var ids = sheets.sheetIds();
+            if (ids.containsKey(request.name())) throw new ApiException(HttpStatus.CONFLICT, "A worksheet with that name already exists.");
+            if (!ids.containsKey(request.sourceSheet()) || !hasExpectedHeaders(request.sourceSheet()))
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a valid expense worksheet to copy.");
+            sheets.duplicateSheet(ids.get(request.sourceSheet()), request.name());
+            sheets.clearValues(quotedSheet(request.name()) + "!A" + FIRST_DATA_ROW + ":M");
+            return new SheetInfo(request.name());
+        } finally { updateLock.unlock(); }
+    }
+
+    private boolean hasExpectedHeaders(String sheetName) {
+        var rows = sheets.readValues(quotedSheet(sheetName) + "!A" + HEADER_ROW + ":M" + HEADER_ROW);
+        if (rows.isEmpty()) return false;
+        var actual = rows.get(0);
+        for (int index = 0; index < EXPECTED_HEADERS.size(); index++) {
+            if (index >= actual.size() || !EXPECTED_HEADERS.get(index).equals(actual.get(index).toString().trim())) return false;
+        }
+        return true;
+    }
+
+    private List<SheetRow> loadRows(String sheetName) {
+        var raw = sheets.readValues(quotedSheet(sheetName) + "!A" + HEADER_ROW + ":M");
+        var notes = sheets.readNotes(quotedSheet(sheetName) + "!A" + HEADER_ROW + ":M");
         if (raw.isEmpty()) throw new ApiException(HttpStatus.CONFLICT, "The worksheet header row is missing.");
         validateHeaders(raw.get(0));
         var rows = new ArrayList<SheetRow>();
@@ -271,6 +314,9 @@ public class MonthlySpendService {
             var date = parseDate(values.get(0));
             var row = new SheetRow(FIRST_DATA_ROW + index - 1, date);
             for (var field : ExpenseField.values()) row.values.put(field, numberAt(values, field.columnIndex()));
+            var noteRow = index < notes.size() ? notes.get(index) : List.<String>of();
+            for (var field : ExpenseField.values()) row.comments.put(field,
+                    field.columnIndex() < noteRow.size() ? noteRow.get(field.columnIndex()) : "");
             row.total = numberAt(values, 8);
             row.weekTotal = numberAt(values, 9);
             row.monthlySpend = numberAt(values, 12);
@@ -290,8 +336,8 @@ public class MonthlySpendService {
         }
     }
 
-    private void validateChanges(Map<String, BigDecimal> changes) {
-        if (changes.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "Change at least one amount before saving.");
+    private void validateChanges(Map<String, BigDecimal> changes, Map<String, String> comments) {
+        if (changes.isEmpty() && (comments == null || comments.isEmpty())) throw new ApiException(HttpStatus.BAD_REQUEST, "Change at least one amount or comment before saving.");
         for (var entry : changes.entrySet()) {
             if (!ExpenseField.byKey().containsKey(entry.getKey())) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown expense field: " + entry.getKey());
@@ -300,6 +346,8 @@ public class MonthlySpendService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Amounts must be non-negative with at most two decimal places.");
             }
         }
+        if (comments != null && comments.keySet().stream().anyMatch(key -> !ExpenseField.byKey().containsKey(key)))
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A comment has an unknown expense field.");
     }
 
     private void ensureUniqueDates(List<SheetRow> rows) {
@@ -355,26 +403,41 @@ public class MonthlySpendService {
         return change.signum() >= 0 ? change.abs().toPlainString() + "% higher" : change.abs().toPlainString() + "% lower";
     }
 
-    private void writeRows(List<SheetRow> rows, SheetRow edited, Map<String, BigDecimal> changes) {
+    private void writeRows(String sheetName, List<SheetRow> rows, SheetRow edited, Map<String, BigDecimal> changes,
+                           Map<String, String> comments) {
         var updates = new ArrayList<Map<String, Object>>();
         for (var key : changes.keySet()) {
             var field = ExpenseField.byKey().get(key);
-            addUpdate(updates, field.header(), edited.rowNumber, edited.values.get(field));
+            addUpdate(updates, sheetName, field.header(), edited.rowNumber, edited.values.get(field));
         }
         for (var row : rows) {
-            addUpdate(updates, "Total", row.rowNumber, row.total);
-            addUpdate(updates, "week Total", row.rowNumber, row.weekTotal);
-            addUpdate(updates, "Monthly Spend", row.rowNumber, row.monthlySpend);
+            addUpdate(updates, sheetName, "Total", row.rowNumber, row.total);
+            addUpdate(updates, sheetName, "week Total", row.rowNumber, row.weekTotal);
+            addUpdate(updates, sheetName, "Monthly Spend", row.rowNumber, row.monthlySpend);
         }
         sheets.batchUpdateValues(updates);
+        if (comments != null && !comments.isEmpty()) {
+            var sheetId = sheets.sheetIds().get(sheetName);
+            var noteUpdates = new ArrayList<Map<String, Object>>();
+            comments.forEach((key, value) -> {
+                var field = ExpenseField.byKey().get(key);
+                noteUpdates.add(Map.of("updateCells", Map.of(
+                        "range", Map.of("sheetId", sheetId, "startRowIndex", edited.rowNumber - 1,
+                                "endRowIndex", edited.rowNumber, "startColumnIndex", field.columnIndex(),
+                                "endColumnIndex", field.columnIndex() + 1),
+                        "rows", List.of(Map.of("values", List.of(Map.of("note", value == null ? "" : value.trim())))),
+                        "fields", "note")));
+            });
+            sheets.batchUpdateSpreadsheet(noteUpdates);
+        }
         int lastRow = rows.stream().mapToInt(item -> item.rowNumber).max().orElse(FIRST_DATA_ROW);
-        sheets.formatDateColumn(FIRST_DATA_ROW - 1, lastRow);
+        sheets.formatDateColumn(sheets.sheetIds().get(sheetName), FIRST_DATA_ROW - 1, lastRow);
     }
 
-    private void addUpdate(List<Map<String, Object>> updates, String header, int rowNumber, BigDecimal value) {
+    private void addUpdate(List<Map<String, Object>> updates, String sheetName, String header, int rowNumber, BigDecimal value) {
         int column = EXPECTED_HEADERS.indexOf(header) + 1;
         updates.add(Map.of(
-                "range", quotedSheet() + "!" + columnName(column) + rowNumber,
+                "range", quotedSheet(sheetName) + "!" + columnName(column) + rowNumber,
                 "majorDimension", "ROWS",
                 "values", List.of(List.of(value == null ? "" : value))
         ));
@@ -382,14 +445,16 @@ public class MonthlySpendService {
 
     private SpendResponse response(SheetRow row, boolean exists) {
         var values = new LinkedHashMap<String, BigDecimal>();
+        var comments = new LinkedHashMap<String, String>();
         for (var field : ExpenseField.values()) values.put(field.key(), row.values.get(field));
-        return new SpendResponse(row.date, exists, values, row.total, row.weekTotal, row.monthlySpend);
+        for (var field : ExpenseField.values()) comments.put(field.key(), row.comments.getOrDefault(field, ""));
+        return new SpendResponse(row.date, exists, values, comments, row.total, row.weekTotal, row.monthlySpend);
     }
 
     private SpendResponse emptyResponse(LocalDate date) {
         var values = new LinkedHashMap<String, BigDecimal>();
         for (var field : ExpenseField.values()) values.put(field.key(), null);
-        return new SpendResponse(date, false, values, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        return new SpendResponse(date, false, values, Map.of(), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
     private LocalDate parseDate(Object value) {
@@ -424,7 +489,12 @@ public class MonthlySpendService {
     private static String dateFormula(LocalDate date) {
         return "=DATE(" + date.getYear() + "," + date.getMonthValue() + "," + date.getDayOfMonth() + ")";
     }
-    private String quotedSheet() { return "'" + properties.sheetName().replace("'", "''") + "'"; }
+    private String resolveSheet(String requested) {
+        var name = requested == null || requested.isBlank() ? properties.sheetName() : requested.trim();
+        if (!sheets.sheetIds().containsKey(name)) throw new ApiException(HttpStatus.BAD_REQUEST, "The selected worksheet does not exist.");
+        return name;
+    }
+    private static String quotedSheet(String name) { return "'" + name.replace("'", "''") + "'"; }
     private static String quote(String name) { return "'" + name.replace("'", "''") + "'"; }
     private static String columnName(int oneBased) { return String.valueOf((char) ('A' + oneBased - 1)); }
 
@@ -432,6 +502,7 @@ public class MonthlySpendService {
         private final int rowNumber;
         private final LocalDate date;
         private final Map<ExpenseField, BigDecimal> values = new LinkedHashMap<>();
+        private final Map<ExpenseField, String> comments = new LinkedHashMap<>();
         private BigDecimal total = BigDecimal.ZERO;
         private BigDecimal weekTotal = BigDecimal.ZERO;
         private BigDecimal monthlySpend = BigDecimal.ZERO;

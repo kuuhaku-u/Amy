@@ -5,6 +5,7 @@ import app.monthlyspend.sheet.MonthlySpendModels.AnalyticsResponse;
 import app.monthlyspend.sheet.MonthlySpendModels.UpdateRequest;
 import app.monthlyspend.sheet.MonthlySpendModels.TransactionRequest;
 import app.monthlyspend.sheet.MonthlySpendModels.TransactionResponse;
+import app.monthlyspend.sheet.MonthlySpendModels;
 import app.monthlyspend.sheet.MonthlySpendService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/monthly-spend")
@@ -28,8 +30,9 @@ public class MonthlySpendController {
     }
 
     @GetMapping
-    SpendResponse get(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return service.get(date);
+    SpendResponse get(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                      @RequestParam(required = false) String sheet) {
+        return service.get(date, sheet);
     }
 
     @PutMapping
@@ -38,8 +41,17 @@ public class MonthlySpendController {
     }
 
     @GetMapping("/analytics")
-    AnalyticsResponse analytics(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return service.analytics(date);
+    AnalyticsResponse analytics(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                @RequestParam(required = false) String sheet) {
+        return service.analytics(date, sheet);
+    }
+
+    @GetMapping("/sheets")
+    List<MonthlySpendModels.SheetInfo> sheets() { return service.sheets(); }
+
+    @PostMapping("/sheets")
+    MonthlySpendModels.SheetInfo createSheet(@Valid @RequestBody MonthlySpendModels.CreateSheetRequest request) {
+        return service.createSheet(request);
     }
 
     @PostMapping("/transactions")

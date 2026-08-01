@@ -47,6 +47,31 @@ public class SheetsClient {
         }
     }
 
+    public List<List<String>> readNotes(String range) {
+        var response = send("GET", BASE_URL + properties.spreadsheetId() + "?ranges=" + encodePath(range)
+                + "&includeGridData=true&fields=sheets.data.rowData.values.note", null);
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(response, new TypeReference<>() {});
+            var sheetList = objectMapper.convertValue(parsed.getOrDefault("sheets", List.of()),
+                    new TypeReference<List<Map<String, Object>>>() {});
+            if (sheetList.isEmpty()) return List.of();
+            var data = objectMapper.convertValue(sheetList.get(0).getOrDefault("data", List.of()),
+                    new TypeReference<List<Map<String, Object>>>() {});
+            if (data.isEmpty()) return List.of();
+            var rowData = objectMapper.convertValue(data.get(0).getOrDefault("rowData", List.of()),
+                    new TypeReference<List<Map<String, Object>>>() {});
+            var result = new java.util.ArrayList<List<String>>();
+            for (var row : rowData) {
+                var cells = objectMapper.convertValue(row.getOrDefault("values", List.of()),
+                        new TypeReference<List<Map<String, Object>>>() {});
+                result.add(cells.stream().map(cell -> cell.getOrDefault("note", "").toString()).toList());
+            }
+            return result;
+        } catch (IOException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Google Sheets returned unreadable cell notes.");
+        }
+    }
+
     public void appendRow(String range, List<Object> values) {
         var body = Map.of("majorDimension", "ROWS", "values", List.of(values));
         send("POST", BASE_URL + properties.spreadsheetId() + "/values/" + encodePath(range)
@@ -82,15 +107,24 @@ public class SheetsClient {
         batchUpdateSpreadsheet(List.of(Map.of("addSheet", Map.of("properties", Map.of("title", title)))));
     }
 
+    public void duplicateSheet(int sourceSheetId, String title) {
+        batchUpdateSpreadsheet(List.of(Map.of("duplicateSheet", Map.of(
+                "sourceSheetId", sourceSheetId, "newSheetName", title))));
+    }
+
+    public void clearValues(String range) {
+        send("POST", BASE_URL + properties.spreadsheetId() + "/values/" + encodePath(range) + ":clear", Map.of());
+    }
+
     public void batchUpdateSpreadsheet(List<Map<String, Object>> requests) {
         send("POST", BASE_URL + properties.spreadsheetId() + ":batchUpdate", Map.of("requests", requests));
     }
 
-    public void formatDateColumn(int startRowIndex, int endRowIndex) {
+    public void formatDateColumn(int sheetId, int startRowIndex, int endRowIndex) {
         var format = Map.of(
                 "requests", List.of(Map.of("repeatCell", Map.of(
                         "range", Map.of(
-                                "sheetId", 0,
+                                "sheetId", sheetId,
                                 "startRowIndex", startRowIndex,
                                 "endRowIndex", endRowIndex,
                                 "startColumnIndex", 0,

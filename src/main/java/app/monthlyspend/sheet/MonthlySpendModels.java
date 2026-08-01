@@ -19,13 +19,22 @@ public final class MonthlySpendModels {
     public record UpdateRequest(
             @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{8,80}") String submissionId,
             @NotNull LocalDate date,
-            @NotNull Map<String, BigDecimal> changes
+            @Size(max = 100) String sheetName,
+            @NotNull Map<String, BigDecimal> changes,
+            Map<String, @Size(max = 500) String> comments
+    ) {}
+
+    public record SheetInfo(String name) {}
+    public record CreateSheetRequest(
+            @NotBlank @Size(max = 100) String name,
+            @NotBlank @Size(max = 100) String sourceSheet
     ) {}
 
     public record SpendResponse(
             LocalDate date,
             boolean exists,
             Map<String, BigDecimal> values,
+            Map<String, String> comments,
             BigDecimal total,
             BigDecimal weekTotal,
             BigDecimal monthlySpend
@@ -57,6 +66,7 @@ public final class MonthlySpendModels {
     public record TransactionRequest(
             @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{16,128}") String eventId,
             @NotNull LocalDate date,
+            @Size(max = 100) String sheetName,
             @NotNull OffsetDateTime occurredAt,
             @NotNull TransactionType type,
             @NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2) BigDecimal amount,
