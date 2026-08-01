@@ -4,10 +4,11 @@ services:
     runtime: docker
     plan: free
     region: singapore
+    branch: orion/main
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       - key: APP_ACCESS_TOKEN
         sync: false
