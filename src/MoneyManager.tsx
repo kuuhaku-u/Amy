@@ -49,8 +49,9 @@ export default function MoneyManager({ date, sheet, token, online }: { date: str
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<ExpenseKey | "">("");
   const [section, setSection] = useState<"dashboard" | "history" | "planning">("dashboard");
+  const [incomeDraft, setIncomeDraft] = useState("");
 
-  useEffect(() => { try { setSettings(JSON.parse(localStorage.getItem(key) || "null") || initial); } catch { setSettings(initial); } }, [key]);
+  useEffect(() => { try { const saved = JSON.parse(localStorage.getItem(key) || "null") || initial; setSettings(saved); setIncomeDraft(saved.income ? String(saved.income) : ""); } catch { setSettings(initial); setIncomeDraft(""); } }, [key]);
   const saveSettings = (next: Settings) => { setSettings(next); localStorage.setItem(key, JSON.stringify(next)); };
   useEffect(() => {
     if (!online || !sheet) return;
@@ -97,6 +98,7 @@ export default function MoneyManager({ date, sheet, token, online }: { date: str
   return <section className="manager-view">
     <nav className="manager-tabs">{(["dashboard", "history", "planning"] as const).map((item) => <button className={section === item ? "active" : ""} onClick={() => setSection(item)} key={item}>{item}</button>)}</nav>
     {section === "dashboard" && <>
+      <article className="income-entry-card"><div><span className="eyebrow">Monthly cashflow</span><h3>{settings.income ? "Update your income" : "Add your income"}</h3><p>Used to calculate balance, savings rate, and affordability.</p></div><div className="income-entry-control"><span>₹</span><input inputMode="decimal" placeholder="Monthly income" value={incomeDraft} onChange={(e) => { if (/^\d*(\.\d{0,2})?$/.test(e.target.value)) setIncomeDraft(e.target.value); }} /><button disabled={!Number(incomeDraft)} onClick={() => saveSettings({ ...settings, income: Number(incomeDraft) })}>{settings.income ? "Update" : "Add income"}</button></div></article>
       <div className="cashflow-grid"><article><span>Income</span><strong>{cash(settings.income)}</strong></article><article><span>Spent</span><strong>{cash(spent)}</strong></article><article className={remaining < 0 ? "danger" : "good"}><span>Projected balance</span><strong>{cash(remaining)}</strong></article><article><span>Savings rate</span><strong>{settings.income ? `${Math.round(remaining / settings.income * 100)}%` : "—"}</strong></article></div>
       <article className="manager-card"><h3>Budget health</h3>{(analytics?.categories || []).map((item) => { const limit = settings.budgets[item.key] || 0; const percent = limit ? item.total / limit * 100 : 0; return <div className="budget-row" key={item.key}><div><span>{item.label}</span><strong>{cash(item.total)} / {limit ? cash(limit) : "No limit"}</strong></div><i><b className={percent >= 100 ? "over" : percent >= 80 ? "warn" : ""} style={{ width: `${Math.min(100, percent)}%` }} /></i></div>; })}</article>
       <article className="manager-card"><h3>Money alerts</h3>{alerts.length ? <ul>{alerts.map((a) => <li key={a}>{a}</li>)}</ul> : <p className="muted">Everything looks on track.</p>}</article>

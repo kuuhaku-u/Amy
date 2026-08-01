@@ -4,6 +4,7 @@ import { enqueue, queuedItems, setConfig } from "./db";
 import { expenseFields, type AnalyticsResponse, type ExpenseKey, type SpendResponse } from "./types";
 import { Capture, isNativeAndroid, type CaptureDraft } from "./native";
 import MoneyManager from "./MoneyManager";
+import UserToolsDrawer from "./UserToolsDrawer";
 
 type FormValues = Record<ExpenseKey, string>;
 type Comments = Record<ExpenseKey, string>;
@@ -112,6 +113,7 @@ export default function App() {
   const [sheet, setSheet] = useState(() => localStorage.getItem("monthlySpendSheet") || "");
   const [creatingSheet, setCreatingSheet] = useState(false);
   const [undoSnapshot, setUndoSnapshot] = useState<{ date: string; sheet: string; values: FormValues; comments: Comments } | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const nativeAndroid = isNativeAndroid();
 
   const refreshPending = useCallback(async () => setPendingCount((await queuedItems()).length), []);
@@ -255,6 +257,12 @@ export default function App() {
     setTouchedComments((current) => new Set(current).add(key));
     setStatus("idle"); setMessage("");
   };
+  const addVoiceExpense = (key: ExpenseKey, amount: number) => {
+    const next = Math.round((previewAmount(values[key], loadedValues[key]) + amount) * 100) / 100;
+    setValues((current) => ({ ...current, [key]: String(next) }));
+    setTouched((current) => new Set(current).add(key));
+    setStatus("idle"); setMessage(`${money(amount)} added to ${expenseFields.find((field) => field.key === key)?.label}. Review and save it.`);
+  };
 
   const changeDate = (nextDate: string) => {
     setDate(nextDate);
@@ -372,7 +380,7 @@ export default function App() {
   }
 
   return (
-    <><CharacterBackground theme={theme} character={sanrioCharacter} /><main className="app-shell">
+    <><CharacterBackground theme={theme} character={sanrioCharacter} /><UserToolsDrawer open={drawerOpen} onClose={() => setDrawerOpen((current) => !current)} date={date} sheet={sheet} token={token} onVoiceExpense={addVoiceExpense} /><main className="app-shell">
       <header className="topbar">
         <div>
           <span className="eyebrow">Personal ledger</span>
