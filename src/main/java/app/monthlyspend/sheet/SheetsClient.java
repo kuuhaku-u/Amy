@@ -5,6 +5,8 @@ import app.monthlyspend.config.AppProperties;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.http.HttpStatus;
 
 import java.io.IOException;
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Duration;
 
 public class SheetsClient {
     private static final String BASE_URL = "https://sheets.googleapis.com/v4/spreadsheets/";
@@ -25,6 +28,10 @@ public class SheetsClient {
     private final ObjectMapper objectMapper;
     private final GoogleCredentials credentials;
     private final AppProperties properties;
+    private final Cache<String, List<List<Object>>> valuesCache = Caffeine.newBuilder()
+            .maximumSize(200).expireAfterWrite(Duration.ofSeconds(60)).build();
+    private final Cache<String, Map<String, Integer>> metadataCache = Caffeine.newBuilder()
+            .maximumSize(4).expireAfterWrite(Duration.ofMinutes(10)).build();
 
     public SheetsClient(HttpClient httpClient, ObjectMapper objectMapper,
                         GoogleCredentials credentials, AppProperties properties) {
@@ -35,6 +42,10 @@ public class SheetsClient {
     }
 
     public List<List<Object>> readValues(String range) {
+        return valuesCache.get(range, this::readValuesUncached);
+    }
+
+    private List<List<Object>> readValuesUncached(String range) {
         var path = encodePath(range);
         var response = send("GET", BASE_URL + properties.spreadsheetId() + "/values/" + path
                 + "?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER", null);
@@ -74,17 +85,27 @@ public class SheetsClient {
     }
 
     public void appendRow(String range, List<Object> values) {
-        var body = Map.of("majorDimension", "ROWS", "values", List.of(values));
+        appendRows(range, List.of(values));
+    }
+
+    public void appendRows(String range, List<List<Object>> values) {
+        var body = Map.of("majorDimension", "ROWS", "values", values);
         send("POST", BASE_URL + properties.spreadsheetId() + "/values/" + encodePath(range)
                 + ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS", body);
+        invalidateValues();
     }
 
     public void batchUpdateValues(List<Map<String, Object>> data) {
         var body = Map.of("valueInputOption", "USER_ENTERED", "data", data);
         send("POST", BASE_URL + properties.spreadsheetId() + "/values:batchUpdate", body);
+        invalidateValues();
     }
 
     public Map<String, Integer> sheetIds() {
+        return metadataCache.get("sheetIds", ignored -> loadSheetIds());
+    }
+
+    private Map<String, Integer> loadSheetIds() {
         var response = send("GET", BASE_URL + properties.spreadsheetId()
                 + "?fields=sheets.properties(sheetId,title)", null);
         try {
@@ -115,6 +136,7 @@ public class SheetsClient {
 
     public void clearValues(String range) {
         send("POST", BASE_URL + properties.spreadsheetId() + "/values/" + encodePath(range) + ":clear", Map.of());
+        invalidateValues();
     }
 
     public String ensureDriveFolder(String folderName) {
@@ -150,7 +172,7 @@ public class SheetsClient {
             System.arraycopy(prefix, 0, body, 0, prefix.length);
             System.arraycopy(bytes, 0, body, prefix.length, bytes.length);
             System.arraycopy(suffix, 0, body, prefix.length + bytes.length, suffix.length);
-            var response = sendBytes("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+            var response = sendBytes("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id",
                     "multipart/related; boundary=" + boundary, body);
             Map<String, Object> parsed = objectMapper.readValue(response, new TypeReference<>() {});
             return parsed.get("id").toString();
@@ -161,6 +183,8 @@ public class SheetsClient {
 
     public void batchUpdateSpreadsheet(List<Map<String, Object>> requests) {
         send("POST", BASE_URL + properties.spreadsheetId() + ":batchUpdate", Map.of("requests", requests));
+        invalidateValues();
+        metadataCache.invalidateAll();
     }
 
     public void formatDateColumn(int sheetId, int startRowIndex, int endRowIndex) {
@@ -182,6 +206,8 @@ public class SheetsClient {
         send("POST", BASE_URL + properties.spreadsheetId() + ":batchUpdate", format);
     }
 
+    private void invalidateValues() { valuesCache.invalidateAll(); }
+
     private String send(String method, String url, Object body) {
         try {
             credentials.refreshIfExpired();
@@ -194,11 +220,18 @@ public class SheetsClient {
                 builder.header("Content-Type", "application/json")
                         .method(method, HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)));
             }
-            var response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ApiException(HttpStatus.BAD_GATEWAY, googleError(response.statusCode(), response.body()));
+            var request = builder.build();
+            for (int attempt = 0; attempt < 3; attempt++) {
+                var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 429 && attempt < 2) {
+                    Thread.sleep((attempt + 1L) * 1_000L);
+                    continue;
+                }
+                if (response.statusCode() < 200 || response.statusCode() >= 300)
+                    throw new ApiException(HttpStatus.BAD_GATEWAY, googleError(response.statusCode(), response.body()));
+                return response.body();
             }
-            return response.body();
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Google Sheets is temporarily rate-limiting requests.");
         } catch (ApiException exception) {
             throw exception;
         } catch (IOException | InterruptedException exception) {
@@ -232,6 +265,12 @@ public class SheetsClient {
     private static String googleError(int status, String body) {
         if (body != null && (body.contains("SERVICE_DISABLED") || body.contains("has not been used in project"))) {
             return "The Google Sheets API is not enabled for the service-account project.";
+        }
+        if (body != null && (body.contains("storageQuotaExceeded") || body.contains("Service Accounts do not have storage quota"))) {
+            return "The service account has no personal Drive storage. Use a Google Shared Drive folder or user OAuth.";
+        }
+        if (body != null && (body.contains("insufficientFilePermissions") || body.contains("The user does not have sufficient permissions"))) {
+            return "The service account cannot write to this Drive folder. Share it as Editor.";
         }
         if (status == 403) {
             return "The service account cannot access this spreadsheet. Share it with the credentials client_email as Editor.";

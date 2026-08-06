@@ -277,7 +277,7 @@ npm run dev:all
 This starts Spring Boot on port `8080`, Vite on port `5173`, and prints the activation URL. If Maven is not installed, the script downloads Maven 3.9.11, verifies its SHA-512 checksum, and stores it under the git-ignored `.tools` directory. The default development URL is:
 
 ```text
-http://localhost:5173/#access=dev-local-key
+http://localhost:5173
 ```
 
 To choose a different development key:

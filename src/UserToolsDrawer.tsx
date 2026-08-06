@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadHistory, logFood, uploadReceipt } from "./api";
+import { loadHistory, loadReceipts, logFood, uploadReceipt } from "./api";
 import { expenseFields, type ExpenseKey, type HistoryEntry } from "./types";
 
 type Tool = "merchants" | "heatmap" | "questions" | "whatif" | "voice" | "receipts" | "foodlog";
@@ -33,7 +33,7 @@ export default function UserToolsDrawer({ open, onClose, date, sheet, token, onV
     const last = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
     loadHistory(`${month}-01`, `${month}-${last}`, sheet, token).then(setHistory).catch(() => setHistory([]));
   }, [month, open, sheet, token]);
-  useEffect(() => { if (open) readReceipts(date).then(setReceipts); }, [date, open]);
+  useEffect(() => { if (open && sheet) loadReceipts(date, sheet, token).then((items) => setReceipts(items.map((item) => ({ id: item.id, date: item.date, name: "", image: item.imageBase64, createdAt: 0 })))).catch(() => readReceipts(date).then(setReceipts)); }, [date, open, sheet, token]);
 
   const merchants = useMemo(() => {
     const totals = new Map<string, number>();
@@ -68,7 +68,8 @@ export default function UserToolsDrawer({ open, onClose, date, sheet, token, onV
       try {
         const uploaded = await uploadReceipt(file, date, sheet, receiptKind, token);
         await saveReceipt(receipt); setReceipts((current) => [receipt, ...current]);
-        setReceiptStatus(`${uploaded.name} saved in Google Drive → ${uploaded.folderName}.`);
+        window.dispatchEvent(new Event("receiptSaved"));
+        setReceiptStatus(`${uploaded.name} saved in ${uploaded.folderName}.`);
       } catch (error) { setReceiptStatus(error instanceof Error ? error.message : "Receipt upload failed."); }
     }; reader.readAsDataURL(file);
   };
@@ -97,7 +98,7 @@ export default function UserToolsDrawer({ open, onClose, date, sheet, token, onV
         {tool === "whatif" && <ToolCard title="Preview a purchase"><div className="tool-fields"><input inputMode="decimal" value={whatAmount} onChange={(e) => setWhatAmount(e.target.value)} placeholder="Amount" /><select value={whatCategory} onChange={(e) => setWhatCategory(e.target.value as ExpenseKey)}>{expenseFields.map((f) => <option value={f.key} key={f.key}>{f.label}</option>)}</select></div><div className="whatif-result"><p><span>Current spend</span><strong>{money(total)}</strong></p><p><span>After purchase</span><strong>{money(total + Number(whatAmount || 0))}</strong></p><p><span>Balance after</span><strong>{income ? money(income - total - Number(whatAmount || 0)) : "Set income in Planning"}</strong></p></div></ToolCard>}
         {tool === "voice" && <ToolCard title="Add by voice"><button className="voice-button" onClick={listen}>● Start listening</button><p className="voice-message">{voiceMessage}</p></ToolCard>}
         {tool === "foodlog" && <ToolCard title={`Log food for ${date}`}><div className="food-log-form"><label><span>Meal</span><select value={foodEntry.meal} onChange={(e) => setFoodEntry({ ...foodEntry, meal: e.target.value as typeof foodEntry.meal })}><option value="BREAKFAST">Breakfast</option><option value="LUNCH">Lunch</option><option value="SNACK">Snack</option><option value="DINNER">Dinner</option></select></label><label><span>Food item</span><input value={foodEntry.food} placeholder="e.g. Masala dosa" onChange={(e) => setFoodEntry({ ...foodEntry, food: e.target.value })} /></label><label><span>Amount</span><input inputMode="decimal" value={foodEntry.amount} placeholder="₹ 0" onChange={(e) => /^\d*(\.\d{0,2})?$/.test(e.target.value) && setFoodEntry({ ...foodEntry, amount: e.target.value })} /></label><label><span>Notes</span><input value={foodEntry.notes} placeholder="Optional" onChange={(e) => setFoodEntry({ ...foodEntry, notes: e.target.value })} /></label><div className="image-source-buttons"><label>📷 Take photo<input type="file" accept="image/*" capture="environment" onChange={(e) => selectFoodImage(e.target.files?.[0])} /></label><label>▧ Choose gallery<input type="file" accept="image/*" onChange={(e) => selectFoodImage(e.target.files?.[0])} /></label></div>{foodPreview && <div className="food-preview"><img src={foodPreview} alt="Selected food" /><button onClick={() => { setFoodImage(null); setFoodPreview(""); }}>×</button></div>}<button onClick={saveFood}>Save food</button></div>{foodStatus && <p className="voice-message">{foodStatus}</p>}</ToolCard>}
-        {tool === "receipts" && <ToolCard title={`Receipts for ${date}`}><div className="receipt-kind"><button className={receiptKind === "food" ? "active" : ""} onClick={() => setReceiptKind("food")}>Food receipt</button><button className={receiptKind === "spend" ? "active" : ""} onClick={() => setReceiptKind("spend")}>Other spending</button></div><div className="image-source-buttons"><label>📷 Take photo<input type="file" accept="image/*" capture="environment" onChange={(e) => addReceipt(e.target.files?.[0])} /></label><label>▧ Gallery / file<input type="file" accept="image/*,application/pdf" onChange={(e) => addReceipt(e.target.files?.[0])} /></label></div>{receiptStatus && <p className="voice-message">{receiptStatus}</p>}<div className="receipt-grid">{receipts.map((receipt) => <figure key={receipt.id}><img src={receipt.image} alt={receipt.name} /><figcaption>{receipt.name}<button onClick={async () => { await deleteReceipt(receipt.id); setReceipts((r) => r.filter((x) => x.id !== receipt.id)); }}>×</button></figcaption></figure>)}</div>{!receipts.length && <Empty text="No receipt attached to this date." />}</ToolCard>}
+        {tool === "receipts" && <ToolCard title={`Receipts for ${date}`}><div className="receipt-kind"><button className={receiptKind === "food" ? "active" : ""} onClick={() => setReceiptKind("food")}>Food receipt</button><button className={receiptKind === "spend" ? "active" : ""} onClick={() => setReceiptKind("spend")}>Other spending</button></div><div className="image-source-buttons"><label>📷 Take photo<input type="file" accept="image/*" capture="environment" onChange={(e) => addReceipt(e.target.files?.[0])} /></label><label>▧ Gallery / file<input type="file" accept="image/*,application/pdf" onChange={(e) => addReceipt(e.target.files?.[0])} /></label></div>{receiptStatus && <p className="voice-message">{receiptStatus}</p>}<div className="receipt-grid">{receipts.map((receipt) => <figure key={receipt.id}><img src={receipt.image} alt="Receipt" /></figure>)}</div>{!receipts.length && <Empty text="No receipt attached to this date." />}</ToolCard>}
       </div>
     </aside></>;
 }

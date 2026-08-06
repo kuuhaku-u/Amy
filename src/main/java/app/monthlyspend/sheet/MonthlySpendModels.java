@@ -29,6 +29,7 @@ public final class MonthlySpendModels {
                                Map<String, String> comments, BigDecimal total) {}
     public record CashflowResponse(String sheetName, List<List<Object>> rows) {}
     public record ReceiptResponse(String fileId, String name, String folderName) {}
+    public record ReceiptImage(String id, LocalDate date, String kind, String mimeType, String imageBase64) {}
     public record FoodLogRequest(
             @NotNull LocalDate date,
             @NotBlank @Pattern(regexp = "BREAKFAST|LUNCH|SNACK|DINNER") String meal,
@@ -40,12 +41,10 @@ public final class MonthlySpendModels {
     public record FoodLogResponse(String status, LocalDate date, String meal, String food) {}
     public record PrivateIncomeRequest(
             @NotBlank @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])") String month,
-            @NotNull @DecimalMin("0.00") @Digits(integer = 12, fraction = 2) BigDecimal income,
-            @NotBlank @Size(min = 8, max = 128) String passphrase
+            @NotNull @DecimalMin("0.00") @Digits(integer = 12, fraction = 2) BigDecimal income
     ) {}
     public record PrivateIncomeUnlockRequest(
-            @NotBlank @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])") String month,
-            @NotBlank @Size(min = 8, max = 128) String passphrase) {}
+            @NotBlank @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])") String month) {}
     public record PrivateIncomeResponse(BigDecimal income) {}
     public record CreateSheetRequest(
             @NotBlank @Size(max = 100) String name,

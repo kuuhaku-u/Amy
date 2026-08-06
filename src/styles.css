@@ -104,6 +104,7 @@ h2 { font-size: 1.8rem; }
 .date-card { background: var(--forest); color: white; padding: 17px 20px; border-radius: 18px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 10px 30px var(--shadow); }
 .date-card label { color: #c5d1cc; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .date-card input { color-scheme: dark; border: 0; background: transparent; color: white; font-weight: 700; outline: none; }
+.date-receipts { margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); }.date-receipts > div:first-child { display: flex; align-items: end; justify-content: space-between; margin-bottom: 9px; }.date-receipts > div:first-child .eyebrow { margin: 0; }.date-receipts > div:first-child strong { color: var(--muted); font-size: .67rem; }.date-receipts > div:last-child { display: flex; gap: 8px; overflow-x: auto; }.date-receipts button { flex: 0 0 92px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }.date-receipts img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
 
 .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 28px; }
 .summary-card { background: var(--paper); border: 1px solid var(--line); border-radius: 17px; padding: 15px; min-width: 0; }
@@ -155,6 +156,8 @@ h2 { font-size: 1.8rem; }
 .view-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 0 0 18px; padding: 5px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
 .view-tabs.three { grid-template-columns: repeat(3, 1fr); }
 .view-tabs.four { grid-template-columns: repeat(4, 1fr); }
+.view-tabs.five { grid-template-columns: repeat(5, 1fr); }
+.view-tabs.six { grid-template-columns: repeat(6, 1fr); }
 .view-tabs button { border: 0; border-radius: 11px; padding: 11px; color: var(--muted); background: transparent; font-size: .78rem; font-weight: 700; }
 .view-tabs button.active { color: white; background: var(--forest); box-shadow: 0 4px 12px var(--shadow); }
 
@@ -249,6 +252,21 @@ h2 { font-size: 1.8rem; }
 .draft-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; margin-top: 14px; }
 .dismiss-button { color: var(--muted); background: var(--soft); }
 .privacy-note { margin: 2px auto 0; max-width: 410px; color: var(--muted); font-size: .62rem; line-height: 1.5; text-align: center; }
+.receipt-gallery-view { display: grid; gap: 14px; padding-bottom: 30px; }
+.gallery-heading { display: flex; justify-content: space-between; align-items: end; }
+.gallery-heading button { padding: 8px 10px; border: 0; border-radius: 9px; color: var(--soft-text); background: var(--soft); font-size: .68rem; font-weight: 700; }
+.gallery-state { padding: 35px 15px; border: 1px solid var(--line); border-radius: 15px; color: var(--muted); background: var(--paper); text-align: center; }
+.gallery-state.error { color: var(--error-text); background: var(--error-bg); }
+.gallery-date { padding: 13px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+.gallery-date h3 { margin: 0 0 10px; color: var(--muted); font-size: .72rem; }
+.gallery-date > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.gallery-date button { position: relative; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+.gallery-date img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.gallery-date span { position: absolute; right: 5px; bottom: 5px; padding: 3px 5px; border-radius: 6px; color: white; background: rgba(0,0,0,.65); font-size: .52rem; font-weight: 700; }
+.receipt-lightbox { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(0,0,0,.94); }
+.receipt-lightbox img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.receipt-lightbox-close { position: absolute; z-index: 1; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); width: 42px; height: 42px; padding: 0; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; color: white; background: rgba(0,0,0,.65); font-size: 1.8rem; line-height: 1; }
+.dev-dashboard { display: grid; gap: 13px; padding-bottom: 30px; }.dev-heading { display: flex; justify-content: space-between; align-items: end; }.dev-heading button { padding: 8px 10px; border: 0; border-radius: 9px; color: var(--error-text); background: var(--error-bg); font-size: .67rem; font-weight: 700; }.dev-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.dev-kpis article, .dev-info, .api-console { padding: 14px; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); }.dev-kpis span { display: block; color: var(--muted); font-size: .6rem; text-transform: uppercase; }.dev-kpis strong { display: block; margin-top: 5px; }.dev-dashboard .ok { color: var(--success-text); }.dev-dashboard .bad { color: var(--error-text); }.dev-info h3, .api-console h3 { margin: 0; font-size: .85rem; }.dev-info dl { margin: 10px 0 0; }.dev-info dl div { display: grid; grid-template-columns: 95px 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .67rem; }.dev-info dt { color: var(--muted); }.dev-info dd { margin: 0; overflow-wrap: anywhere; }.api-console > div:first-child { display: flex; justify-content: space-between; gap: 8px; }.api-console > div > small, .api-console > p { color: var(--muted); font-size: .62rem; }.api-log-list { display: grid; gap: 7px; margin-top: 12px; }.api-log { display: grid; grid-template-columns: 38px 1fr auto; gap: 6px; padding: 9px; border-left: 3px solid var(--success-text); border-radius: 8px; background: var(--soft); font-size: .62rem; }.api-log.failed { border-left-color: var(--error-text); }.api-log code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.api-log > small { grid-column: 2 / -1; color: var(--muted); }.api-log > p { grid-column: 1 / -1; margin: 3px 0 0; color: var(--error-text); }.api-method { font-weight: 800; }
 
 .manager-view { display: grid; gap: 14px; padding-bottom: 30px; }
 .private-income-controls { display: grid; gap: 7px; }

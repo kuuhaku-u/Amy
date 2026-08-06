@@ -71,10 +71,17 @@ public class MonthlySpendController {
     @PostMapping(value = "/receipts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     MonthlySpendModels.ReceiptResponse uploadReceipt(
             @RequestPart("file") MultipartFile file,
-            @RequestPart("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestPart("sheet") String sheet,
-            @RequestPart(value = "kind", required = false) String kind) {
+            @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam("sheet") String sheet,
+            @RequestParam(value = "kind", required = false) String kind) {
         return service.uploadReceipt(file, date, sheet, kind);
+    }
+
+    @GetMapping("/receipts")
+    List<MonthlySpendModels.ReceiptImage> receipts(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam("sheet") String sheet) {
+        return service.receipts(date, sheet);
     }
 
     @PostMapping("/food-log")

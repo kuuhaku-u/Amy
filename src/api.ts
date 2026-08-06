@@ -1,5 +1,6 @@
 import { queuedItems, removeQueued } from "./db";
-import type { AnalyticsResponse, CashflowResponse, FoodLogRequest, HistoryEntry, ReceiptResponse, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
+import type { AnalyticsResponse, CashflowResponse, FoodLogRequest, HistoryEntry, ReceiptImage, ReceiptResponse, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
+import { recordApiLog } from "./devlog";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -10,7 +11,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const started = performance.now();
+  const method = init?.method || "GET";
+  let response: Response;
+  try { response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
@@ -18,8 +22,12 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
       ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...init?.headers
     }
-  });
+  }); } catch (error) {
+    recordApiLog({ method, path, status: null, durationMs: Math.round(performance.now() - started), error: error instanceof Error ? error.message : "Network error" });
+    throw error;
+  }
   const body = (await response.json().catch(() => ({}))) as { error?: string };
+  recordApiLog({ method, path, status: response.status, durationMs: Math.round(performance.now() - started), ...(response.ok ? {} : { error: body.error || response.statusText }) });
   if (!response.ok) throw new ApiError(body.error || "The server could not complete the request.", response.status);
   return body as T;
 }
@@ -53,16 +61,24 @@ export function uploadReceipt(file: File, date: string, sheet: string, kind: "fo
   return request("/api/monthly-spend/receipts", token, { method: "POST", body });
 }
 
+export function loadReceipts(date: string, sheet: string, token: string): Promise<ReceiptImage[]> {
+  return request(`/api/monthly-spend/receipts?date=${encodeURIComponent(date)}&sheet=${encodeURIComponent(sheet)}`, token);
+}
+
+export function loadAllReceipts(sheet: string, token: string): Promise<ReceiptImage[]> {
+  return request(`/api/monthly-spend/receipts?sheet=${encodeURIComponent(sheet)}`, token);
+}
+
 export function logFood(entry: FoodLogRequest, token: string): Promise<{ status: string }> {
   return request("/api/monthly-spend/food-log", token, { method: "POST", body: JSON.stringify(entry) });
 }
 
-export function savePrivateIncome(month: string, income: number, passphrase: string, token: string): Promise<{ income: number }> {
-  return request("/api/monthly-spend/private-income", token, { method: "POST", body: JSON.stringify({ month, income, passphrase }) });
+export function savePrivateIncome(month: string, income: number, token: string): Promise<{ income: number }> {
+  return request("/api/monthly-spend/private-income", token, { method: "POST", body: JSON.stringify({ month, income }) });
 }
 
-export function unlockPrivateIncome(month: string, passphrase: string, token: string): Promise<{ income: number }> {
-  return request("/api/monthly-spend/private-income/unlock", token, { method: "POST", body: JSON.stringify({ month, passphrase }) });
+export function unlockPrivateIncome(month: string, token: string): Promise<{ income: number }> {
+  return request("/api/monthly-spend/private-income/unlock", token, { method: "POST", body: JSON.stringify({ month }) });
 }
 
 export function recordTransaction(transaction: TransactionRequest, token: string): Promise<TransactionResponse> {

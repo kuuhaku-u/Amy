@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, createSheet, loadAnalytics, loadDate, loadSheets, recordTransaction, syncQueued } from "./api";
+import { ApiError, createSheet, loadAnalytics, loadDate, loadReceipts, loadSheets, recordTransaction, syncQueued } from "./api";
 import { enqueue, queuedItems, setConfig } from "./db";
 import { expenseFields, type AnalyticsResponse, type ExpenseKey, type SpendResponse } from "./types";
 import { Capture, isNativeAndroid, type CaptureDraft } from "./native";
 import MoneyManager from "./MoneyManager";
 import UserToolsDrawer from "./UserToolsDrawer";
+import DevDashboard from "./DevDashboard";
+import ReceiptGallery from "./ReceiptGallery";
 
 type FormValues = Record<ExpenseKey, string>;
 type Comments = Record<ExpenseKey, string>;
@@ -82,6 +84,9 @@ function tokenFromLocation(): string {
     history.replaceState(null, "", window.location.pathname + window.location.search);
     return token;
   }
+  if (!isNativeAndroid() && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+    return import.meta.env.VITE_LOCAL_ACCESS_TOKEN || "dev-local-key";
+  }
   return isNativeAndroid() ? "" : localStorage.getItem("monthlySpendAccess") || "";
 }
 
@@ -108,7 +113,7 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
-  const [view, setView] = useState<"expenses" | "insights" | "money" | "inbox">("expenses");
+  const [view, setView] = useState<"expenses" | "insights" | "money" | "images" | "inbox" | "dev">("expenses");
   const [sheets, setSheets] = useState<string[]>([]);
   const [sheet, setSheet] = useState(() => localStorage.getItem("monthlySpendSheet") || "");
   const [creatingSheet, setCreatingSheet] = useState(false);
@@ -393,11 +398,13 @@ export default function App() {
 
       <ThemePicker theme={theme} onChange={setTheme} />
 
-      <nav className={`view-tabs ${nativeAndroid ? "four" : "three"}`} aria-label="App sections">
+      <nav className={`view-tabs ${nativeAndroid ? "six" : "four"}`} aria-label="App sections">
         <button className={view === "expenses" ? "active" : ""} onClick={() => setView("expenses")}>＋ Expenses</button>
         <button className={view === "insights" ? "active" : ""} onClick={() => setView("insights")}>⌁ Insights</button>
         <button className={view === "money" ? "active" : ""} onClick={() => setView("money")}>₹ Money</button>
+        <button className={view === "images" ? "active" : ""} onClick={() => setView("images")}>▧ Images</button>
         {nativeAndroid && <button className={view === "inbox" ? "active" : ""} onClick={() => setView("inbox")}>▣ Inbox</button>}
+        {nativeAndroid && <button className={view === "dev" ? "active" : ""} onClick={() => setView("dev")}>⌘ Dev</button>}
       </nav>
 
       {theme === "sanrio" && view === "expenses" && (
@@ -413,12 +420,16 @@ export default function App() {
 
       {view === "insights" ? <AnalyticsView date={date} sheet={sheet} sheets={sheets} token={token} online={online} onDateChange={changeDate} />
         : view === "money" ? <MoneyManager date={date} sheet={sheet} token={token} online={online} />
+        : view === "images" ? <ReceiptGallery sheet={sheet} token={token} online={online} />
+        : view === "dev" ? <DevDashboard online={online} pendingCount={pendingCount} />
         : view === "inbox" ? <CaptureInbox sheet={sheet} token={token} online={online} /> : <>
 
       <section className="date-card">
         <label htmlFor="spend-date">Entry date</label>
         <input id="spend-date" type="date" value={date} onChange={(event) => changeDate(event.target.value)} />
       </section>
+
+      <DateReceipts date={date} sheet={sheet} token={token} online={online} />
 
       <section className="summary-grid" aria-label="Spending summary">
         <article className="summary-card accent">
@@ -476,6 +487,17 @@ export default function App() {
       </>}
     </main></>
   );
+}
+
+function DateReceipts({ date, sheet, token, online }: { date: string; sheet: string; token: string; online: boolean }) {
+  const [images, setImages] = useState<string[]>([]);
+  const refresh = useCallback(() => {
+    if (!online || !sheet) return;
+    loadReceipts(date, sheet, token).then((items) => setImages(items.filter((item) => item.mimeType.startsWith("image/")).map((item) => item.imageBase64))).catch(() => setImages([]));
+  }, [date, online, sheet, token]);
+  useEffect(() => { refresh(); window.addEventListener("receiptSaved", refresh); return () => window.removeEventListener("receiptSaved", refresh); }, [refresh]);
+  if (!images.length) return null;
+  return <section className="date-receipts" aria-label={`Receipts for ${date}`}><div><span className="eyebrow">Receipts for this date</span><strong>{images.length} {images.length === 1 ? "image" : "images"}</strong></div><div>{images.map((source, index) => <button type="button" onClick={() => window.open(source, "_blank")} key={index}><img src={source} alt={`Receipt ${index + 1}`} /></button>)}</div></section>;
 }
 
 function parseAdjustment(value: string): number | null {

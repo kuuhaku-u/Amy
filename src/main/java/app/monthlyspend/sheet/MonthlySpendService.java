@@ -29,6 +29,16 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
+import javax.imageio.ImageIO;
+import javax.imageio.IIOImage;
+import javax.imageio.ImageWriteParam;
+import java.awt.Color;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 import static app.monthlyspend.sheet.MonthlySpendModels.SpendResponse;
 import static app.monthlyspend.sheet.MonthlySpendModels.UpdateRequest;
@@ -44,6 +54,11 @@ import static app.monthlyspend.sheet.MonthlySpendModels.SheetInfo;
 @Service
 public class MonthlySpendService {
     private static final String RECEIPT_FOLDER = "Monthly Spend Receipts";
+    private static final String RECEIPT_STORAGE_SHEET = "Receipt Storage";
+    private static final int RECEIPT_CHUNK_SIZE = 40_000;
+    private static final List<String> RECEIPT_HEADERS = List.of(
+            "Receipt ID", "Date", "Source Sheet", "Kind", "File Name", "MIME Type", "Size Bytes",
+            "Chunk Index", "Total Chunks", "SHA-256", "Created At", "Base64 Data");
     private static final String FOOD_LOG_SHEET = "Food Log";
     private static final List<String> FOOD_LOG_HEADERS = List.of("Date", "Meal", "Food", "Amount", "Notes", "Receipt File ID", "Recorded At");
     private static final String PRIVATE_SETTINGS_SHEET = "Private Settings";
@@ -324,24 +339,100 @@ public class MonthlySpendService {
     public MonthlySpendModels.ReceiptResponse uploadReceipt(MultipartFile file, LocalDate date, String requestedSheet, String kind) {
         var sheetName = resolveSheet(requestedSheet);
         if (file.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a receipt file to upload.");
-        if (file.getSize() > 10 * 1024 * 1024) throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "Receipts must be 10 MB or smaller.");
+        if (file.getSize() > 10 * 1024 * 1024) throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "Receipt images must be 10 MB or smaller.");
         var contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
-        if (!List.of("image/jpeg", "image/png", "image/webp", "application/pdf").contains(contentType))
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Receipts must be JPEG, PNG, WebP, or PDF files.");
+        if (!List.of("image/jpeg", "image/png", "image/webp").contains(contentType))
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Receipts must be JPEG, PNG, or WebP images.");
         try {
             var safeOriginal = file.getOriginalFilename() == null ? "receipt" : file.getOriginalFilename().replaceAll("[^A-Za-z0-9._-]", "_");
-            var name = date + "_" + safeOriginal;
-            var food = "food".equalsIgnoreCase(kind);
-            var configuredFolder = food ? properties.foodReceiptFolderId() : properties.spendReceiptFolderId();
-            if (configuredFolder == null || configuredFolder.isBlank()) configuredFolder = properties.receiptFolderId();
-            var folderId = configuredFolder == null || configuredFolder.isBlank()
-                    ? sheets.ensureDriveFolder(RECEIPT_FOLDER) : configuredFolder.trim();
-            var fileId = sheets.uploadDriveFile(folderId, name, contentType, file.getBytes(), Map.of(
-                    "monthlySpendDate", date.toString(), "monthlySpendSheet", sheetName));
-            return new MonthlySpendModels.ReceiptResponse(fileId, name, food ? "Food receipts" : "Spend receipts");
+            var prepared = prepareReceiptImage(file.getBytes(), contentType);
+            var name = date + "_" + safeOriginal.replaceFirst("\\.[^.]+$", "") + ("image/jpeg".equals(prepared.mimeType()) ? ".jpg" : ".webp");
+            var bytes = prepared.bytes();
+            contentType = prepared.mimeType();
+            var encoded = Base64.getEncoder().encodeToString(bytes);
+            var receiptId = java.util.UUID.randomUUID().toString();
+            var chunks = (encoded.length() + RECEIPT_CHUNK_SIZE - 1) / RECEIPT_CHUNK_SIZE;
+            var digest = sha256(bytes);
+            updateLock.lock();
+            try {
+                if (!sheets.sheetIds().containsKey(RECEIPT_STORAGE_SHEET)) sheets.addSheet(RECEIPT_STORAGE_SHEET);
+                sheets.batchUpdateValues(List.of(Map.of("range", quote(RECEIPT_STORAGE_SHEET) + "!A1:L1",
+                        "majorDimension", "ROWS", "values", List.of(RECEIPT_HEADERS))));
+                var chunkRows = new ArrayList<List<Object>>();
+                for (int index = 0; index < chunks; index++) {
+                    var start = index * RECEIPT_CHUNK_SIZE;
+                    var data = encoded.substring(start, Math.min(encoded.length(), start + RECEIPT_CHUNK_SIZE));
+                    chunkRows.add(List.of(
+                            receiptId, date.toString(), "'" + sheetName, "food".equalsIgnoreCase(kind) ? "food" : "spend",
+                            name, contentType, bytes.length, index + 1, chunks, digest, OffsetDateTime.now().toString(), data));
+                }
+                sheets.appendRows(quote(RECEIPT_STORAGE_SHEET) + "!A:L", chunkRows);
+            } finally { updateLock.unlock(); }
+            return new MonthlySpendModels.ReceiptResponse(receiptId, name, RECEIPT_STORAGE_SHEET);
         } catch (java.io.IOException exception) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not read the uploaded receipt.");
         }
+    }
+
+    private ReceiptPayload prepareReceiptImage(byte[] original, String contentType) {
+        try {
+            var source = ImageIO.read(new ByteArrayInputStream(original));
+            if (source == null) {
+                if (original.length <= 750 * 1024 && "image/webp".equals(contentType)) return new ReceiptPayload(original, contentType);
+                throw new ApiException(HttpStatus.BAD_REQUEST, "This image format could not be decoded. Use JPEG or PNG.");
+            }
+            var scale = Math.min(1d, 1280d / Math.max(source.getWidth(), source.getHeight()));
+            var width = Math.max(1, (int) Math.round(source.getWidth() * scale));
+            var height = Math.max(1, (int) Math.round(source.getHeight() * scale));
+            var output = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            var graphics = output.createGraphics();
+            graphics.setColor(Color.WHITE); graphics.fillRect(0, 0, width, height);
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.drawImage(source, 0, 0, width, height, null); graphics.dispose();
+            var bytes = new ByteArrayOutputStream();
+            var writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+            try (var imageOutput = ImageIO.createImageOutputStream(bytes)) {
+                writer.setOutput(imageOutput); var parameters = writer.getDefaultWriteParam();
+                parameters.setCompressionMode(ImageWriteParam.MODE_EXPLICIT); parameters.setCompressionQuality(.72f);
+                writer.write(null, new IIOImage(output, null, null), parameters);
+            } finally { writer.dispose(); }
+            if (bytes.size() > 750 * 1024) throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "The compressed image is still too large for Sheets storage.");
+            return new ReceiptPayload(bytes.toByteArray(), "image/jpeg");
+        } catch (ApiException exception) { throw exception;
+        } catch (Exception exception) { throw new ApiException(HttpStatus.BAD_REQUEST, "The receipt image could not be processed."); }
+    }
+
+    private record ReceiptPayload(byte[] bytes, String mimeType) {}
+
+    public List<MonthlySpendModels.ReceiptImage> receipts(LocalDate date, String requestedSheet) {
+        var sheetName = resolveSheet(requestedSheet);
+        if (!sheets.sheetIds().containsKey(RECEIPT_STORAGE_SHEET)) return List.of();
+        var rows = sheets.readValues(quote(RECEIPT_STORAGE_SHEET) + "!A2:L");
+        var grouped = new LinkedHashMap<String, List<List<Object>>>();
+        for (var row : rows) {
+            if (row.size() < 12 || (date != null && !date.equals(parseDate(row.get(1)))) || !matchesReceiptSheet(sheetName, row.get(2))) continue;
+            grouped.computeIfAbsent(row.get(0).toString(), ignored -> new ArrayList<>()).add(row);
+        }
+        var result = new ArrayList<MonthlySpendModels.ReceiptImage>();
+        for (var entry : grouped.entrySet()) {
+            var chunks = entry.getValue().stream().sorted(Comparator.comparingInt(row -> Integer.parseInt(row.get(7).toString()))).toList();
+            var encoded = new StringBuilder();
+            chunks.forEach(row -> encoded.append(row.get(11).toString()));
+            var first = chunks.get(0);
+            result.add(new MonthlySpendModels.ReceiptImage(entry.getKey(), parseDate(first.get(1)), first.get(3).toString(),
+                    first.get(5).toString(), "data:" + first.get(5) + ";base64," + encoded));
+        }
+        return result;
+    }
+
+    private boolean matchesReceiptSheet(String sheetName, Object stored) {
+        if (sheetName.equals(stored.toString())) return true;
+        if (!(stored instanceof Number)) return false;
+        try {
+            var expected = YearMonth.parse(sheetName.trim(), DateTimeFormatter.ofPattern("MMMM uuuu", Locale.ENGLISH));
+            return expected.equals(YearMonth.from(parseDate(stored)));
+        } catch (DateTimeParseException exception) { return false; }
     }
 
     public MonthlySpendModels.FoodLogResponse logFood(MonthlySpendModels.FoodLogRequest request) {
@@ -367,9 +458,9 @@ public class MonthlySpendService {
             var settings = loadPrivateSettings();
             var prefix = "income." + request.month() + ".";
             var existingSalt = settings.get(prefix + "salt");
-            if (existingSalt != null) verifyPassphrase(request.passphrase(), existingSalt, settings.get(prefix + "verifier"));
+            if (existingSalt != null) verifyPassphrase(properties.accessToken(), existingSalt, settings.get(prefix + "verifier"));
             var salt = existingSalt == null ? randomBytes(16) : Base64.getDecoder().decode(existingSalt);
-            var key = deriveKey(request.passphrase(), salt);
+            var key = deriveKey(properties.accessToken(), salt);
             var iv = randomBytes(12);
             var cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
@@ -391,7 +482,7 @@ public class MonthlySpendService {
             var saltText = settings.get(prefix + "salt");
             var cipherText = settings.get(prefix + "cipher");
             if (saltText == null || cipherText == null) throw new ApiException(HttpStatus.NOT_FOUND, "No private income has been saved yet.");
-            var key = verifyPassphrase(request.passphrase(), saltText, settings.get(prefix + "verifier"));
+            var key = verifyPassphrase(properties.accessToken(), saltText, settings.get(prefix + "verifier"));
             var parts = cipherText.split(":", 2);
             var cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, Base64.getDecoder().decode(parts[0])));
@@ -444,6 +535,10 @@ public class MonthlySpendService {
     private static String verifier(SecretKeySpec key) {
         try { return Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(key.getEncoded())); }
         catch (Exception exception) { throw new IllegalStateException(exception); }
+    }
+    private static String sha256(byte[] value) {
+        try { return Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(value)); }
+        catch (Exception exception) { throw new IllegalStateException("SHA-256 is not available.", exception); }
     }
     private static byte[] randomBytes(int size) { var bytes = new byte[size]; new SecureRandom().nextBytes(bytes); return bytes; }
 

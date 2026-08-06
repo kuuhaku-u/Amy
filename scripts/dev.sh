@@ -48,6 +48,7 @@ if [[ ! -d node_modules ]]; then
 fi
 
 export APP_ACCESS_TOKEN="${APP_ACCESS_TOKEN:-dev-local-key}"
+export VITE_LOCAL_ACCESS_TOKEN="$APP_ACCESS_TOKEN"
 
 backend_pid=""
 frontend_pid=""
@@ -72,7 +73,7 @@ npm run dev -- --host 0.0.0.0 &
 frontend_pid=$!
 
 echo
-echo "Open: http://localhost:5173/#access=$APP_ACCESS_TOKEN"
+echo "Open: http://localhost:5173 (local access is automatic)"
 echo "Press Ctrl+C to stop both services."
 echo
 
