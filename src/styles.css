@@ -255,6 +255,12 @@ h2 { font-size: 1.8rem; }
 .receipt-gallery-view { display: grid; gap: 14px; padding-bottom: 30px; }
 .gallery-heading { display: flex; justify-content: space-between; align-items: end; }
 .gallery-heading button { padding: 8px 10px; border: 0; border-radius: 9px; color: var(--soft-text); background: var(--soft); font-size: .68rem; font-weight: 700; }
+.drive-connection { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--gold); border-radius: 14px; background: var(--paper); }
+.drive-connection.connected { border-color: var(--forest); }
+.drive-connection div { display: grid; gap: 3px; }
+.drive-connection strong { font-size: .72rem; }
+.drive-connection span { color: var(--muted); font-size: .62rem; line-height: 1.4; }
+.drive-connection a, .drive-connection > button { flex: none; padding: 9px 12px; border: 0; border-radius: 9px; color: white; background: var(--forest); text-decoration: none; font-size: .68rem; font-weight: 700; }
 .gallery-state { padding: 35px 15px; border: 1px solid var(--line); border-radius: 15px; color: var(--muted); background: var(--paper); text-align: center; }
 .gallery-state.error { color: var(--error-text); background: var(--error-bg); }
 .gallery-date { padding: 13px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }

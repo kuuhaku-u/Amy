@@ -7,6 +7,7 @@ import app.monthlyspend.sheet.MonthlySpendModels.TransactionRequest;
 import app.monthlyspend.sheet.MonthlySpendModels.TransactionResponse;
 import app.monthlyspend.sheet.MonthlySpendModels;
 import app.monthlyspend.sheet.MonthlySpendService;
+import app.monthlyspend.drive.GoogleDriveOAuthService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,9 +28,11 @@ import java.util.List;
 @RequestMapping("/api/monthly-spend")
 public class MonthlySpendController {
     private final MonthlySpendService service;
+    private final GoogleDriveOAuthService drive;
 
-    public MonthlySpendController(MonthlySpendService service) {
+    public MonthlySpendController(MonthlySpendService service, GoogleDriveOAuthService drive) {
         this.service = service;
+        this.drive = drive;
     }
 
     @GetMapping
@@ -82,6 +85,12 @@ public class MonthlySpendController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam("sheet") String sheet) {
         return service.receipts(date, sheet);
+    }
+
+    @GetMapping("/drive/status")
+    MonthlySpendModels.DriveConnection driveStatus() {
+        return new MonthlySpendModels.DriveConnection(drive.configured(), drive.connected(),
+                drive.configured() && !drive.connected() ? drive.authorizationUrl() : "");
     }
 
     @PostMapping("/food-log")

@@ -2,6 +2,7 @@ package app.monthlyspend.sheet;
 
 import app.monthlyspend.api.ApiException;
 import app.monthlyspend.config.AppProperties;
+import app.monthlyspend.drive.GoogleDriveOAuthService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -82,6 +83,7 @@ public class MonthlySpendService {
 
     private final SheetsClient sheets;
     private final AppProperties properties;
+    private final GoogleDriveOAuthService drive;
     private final ReentrantLock updateLock = new ReentrantLock(true);
     private final Map<String, SpendResponse> recentSubmissions = new LinkedHashMap<>() {
         @Override protected boolean removeEldestEntry(Map.Entry<String, SpendResponse> eldest) {
@@ -89,9 +91,10 @@ public class MonthlySpendService {
         }
     };
 
-    public MonthlySpendService(SheetsClient sheets, AppProperties properties) {
+    public MonthlySpendService(SheetsClient sheets, AppProperties properties, GoogleDriveOAuthService drive) {
         this.sheets = sheets;
         this.properties = properties;
+        this.drive = drive;
     }
 
     public SpendResponse get(LocalDate date) { return get(date, null); }
@@ -349,26 +352,22 @@ public class MonthlySpendService {
             var name = date + "_" + safeOriginal.replaceFirst("\\.[^.]+$", "") + ("image/jpeg".equals(prepared.mimeType()) ? ".jpg" : ".webp");
             var bytes = prepared.bytes();
             contentType = prepared.mimeType();
-            var encoded = Base64.getEncoder().encodeToString(bytes);
             var receiptId = java.util.UUID.randomUUID().toString();
-            var chunks = (encoded.length() + RECEIPT_CHUNK_SIZE - 1) / RECEIPT_CHUNK_SIZE;
             var digest = sha256(bytes);
+            var normalizedKind = "food".equalsIgnoreCase(kind) ? "food" : "spend";
+            var folderId = "food".equals(normalizedKind) ? properties.foodReceiptFolderId() : properties.spendReceiptFolderId();
+            var driveId = drive.upload(folderId, name, contentType, bytes, Map.of(
+                    "receiptId", receiptId, "date", date.toString(), "sheet", sheetName, "kind", normalizedKind));
             updateLock.lock();
             try {
                 if (!sheets.sheetIds().containsKey(RECEIPT_STORAGE_SHEET)) sheets.addSheet(RECEIPT_STORAGE_SHEET);
                 sheets.batchUpdateValues(List.of(Map.of("range", quote(RECEIPT_STORAGE_SHEET) + "!A1:L1",
                         "majorDimension", "ROWS", "values", List.of(RECEIPT_HEADERS))));
-                var chunkRows = new ArrayList<List<Object>>();
-                for (int index = 0; index < chunks; index++) {
-                    var start = index * RECEIPT_CHUNK_SIZE;
-                    var data = encoded.substring(start, Math.min(encoded.length(), start + RECEIPT_CHUNK_SIZE));
-                    chunkRows.add(List.of(
-                            receiptId, date.toString(), "'" + sheetName, "food".equalsIgnoreCase(kind) ? "food" : "spend",
-                            name, contentType, bytes.length, index + 1, chunks, digest, OffsetDateTime.now().toString(), data));
-                }
-                sheets.appendRows(quote(RECEIPT_STORAGE_SHEET) + "!A:L", chunkRows);
+                sheets.appendRow(quote(RECEIPT_STORAGE_SHEET) + "!A:L", List.of(
+                        receiptId, date.toString(), "'" + sheetName, normalizedKind, name, contentType,
+                        bytes.length, 0, 0, digest, OffsetDateTime.now().toString(), "drive:" + driveId));
             } finally { updateLock.unlock(); }
-            return new MonthlySpendModels.ReceiptResponse(receiptId, name, RECEIPT_STORAGE_SHEET);
+            return new MonthlySpendModels.ReceiptResponse(receiptId, name, "Google Drive");
         } catch (java.io.IOException exception) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not read the uploaded receipt.");
         }
@@ -417,9 +416,15 @@ public class MonthlySpendService {
         var result = new ArrayList<MonthlySpendModels.ReceiptImage>();
         for (var entry : grouped.entrySet()) {
             var chunks = entry.getValue().stream().sorted(Comparator.comparingInt(row -> Integer.parseInt(row.get(7).toString()))).toList();
-            var encoded = new StringBuilder();
-            chunks.forEach(row -> encoded.append(row.get(11).toString()));
             var first = chunks.get(0);
+            String encoded;
+            var storage = first.get(11).toString();
+            if (storage.startsWith("drive:")) encoded = Base64.getEncoder().encodeToString(drive.download(storage.substring(6)));
+            else {
+                var builder = new StringBuilder();
+                chunks.forEach(row -> builder.append(row.get(11).toString()));
+                encoded = builder.toString();
+            }
             result.add(new MonthlySpendModels.ReceiptImage(entry.getKey(), parseDate(first.get(1)), first.get(3).toString(),
                     first.get(5).toString(), "data:" + first.get(5) + ";base64," + encoded));
         }

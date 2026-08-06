@@ -17,6 +17,9 @@ app:
   receipt-folder-id: ${GOOGLE_DRIVE_RECEIPT_FOLDER_ID:}
   food-receipt-folder-id: ${GOOGLE_DRIVE_FOOD_FOLDER_ID:}
   spend-receipt-folder-id: ${GOOGLE_DRIVE_SPEND_FOLDER_ID:}
+  google-drive-oauth-client-id: ${GOOGLE_DRIVE_OAUTH_CLIENT_ID:}
+  google-drive-oauth-client-secret: ${GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:}
+  google-drive-oauth-redirect-uri: ${GOOGLE_DRIVE_OAUTH_REDIRECT_URI:http://localhost:8080/oauth/google-drive/callback}
 
 logging:
   level:

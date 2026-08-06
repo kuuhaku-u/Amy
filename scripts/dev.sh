@@ -52,6 +52,7 @@ export VITE_LOCAL_ACCESS_TOKEN="$APP_ACCESS_TOKEN"
 
 backend_pid=""
 frontend_pid=""
+watcher_pid=""
 
 cleanup() {
   trap - INT TERM EXIT
@@ -59,7 +60,8 @@ cleanup() {
   echo "Stopping frontend and backend..."
   [[ -n "$frontend_pid" ]] && kill "$frontend_pid" 2>/dev/null || true
   [[ -n "$backend_pid" ]] && kill "$backend_pid" 2>/dev/null || true
-  wait "$frontend_pid" "$backend_pid" 2>/dev/null || true
+  [[ -n "$watcher_pid" ]] && kill "$watcher_pid" 2>/dev/null || true
+  wait "$frontend_pid" "$backend_pid" "$watcher_pid" 2>/dev/null || true
 }
 
 trap cleanup INT TERM EXIT
@@ -68,13 +70,27 @@ echo "Starting Java backend at http://localhost:8080"
 "$MAVEN_CMD" -q -DskipTests spring-boot:run &
 backend_pid=$!
 
+if command -v inotifywait >/dev/null 2>&1; then
+  (
+    while inotifywait -qq -r -e close_write,create,delete,move src/main; do
+      sleep 0.15
+      echo "Java/config change detected — compiling…"
+      "$MAVEN_CMD" -q -DskipTests compile || echo "Compilation failed; fix the error and save again."
+    done
+  ) &
+  watcher_pid=$!
+else
+  echo "Note: install inotify-tools for automatic Java recompilation."
+fi
+
 echo "Starting Vite frontend at http://localhost:5173"
 npm run dev -- --host 0.0.0.0 &
 frontend_pid=$!
 
 echo
 echo "Open: http://localhost:5173 (local access is automatic)"
-echo "Press Ctrl+C to stop both services."
+echo "Java and React changes reload automatically."
+echo "Press Ctrl+C to stop all development services."
 echo
 
 wait -n "$backend_pid" "$frontend_pid"

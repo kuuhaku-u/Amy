@@ -70,4 +70,5 @@ export interface HistoryEntry { date: string; values: ExpenseValues; comments: P
 export interface CashflowResponse { sheetName: string; rows: (string | number | boolean | null)[][]; }
 export interface ReceiptResponse { fileId: string; name: string; folderName: string; }
 export interface ReceiptImage { id: string; date: string; kind: "food" | "spend"; mimeType: string; imageBase64: string; }
+export interface DriveConnection { configured: boolean; connected: boolean; authorizationUrl: string; }
 export interface FoodLogRequest { date: string; meal: "BREAKFAST" | "LUNCH" | "SNACK" | "DINNER"; food: string; amount: number; notes?: string; receiptFileId?: string; }

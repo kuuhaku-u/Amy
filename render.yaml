@@ -17,9 +17,15 @@ services:
       - key: GOOGLE_DRIVE_RECEIPT_FOLDER_ID
         sync: false
       - key: GOOGLE_DRIVE_FOOD_FOLDER_ID
-        value: 1YqbaLKhPhz8TMNh1vL4FLiDGvYaMapM8
+        sync: false
       - key: GOOGLE_DRIVE_SPEND_FOLDER_ID
-        value: 10svWmFf_0kEZDn8TIHxnYyZ7VLAoS2m0
+        sync: false
+      - key: GOOGLE_DRIVE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_DRIVE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_DRIVE_OAUTH_REDIRECT_URI
+        sync: false
       - key: SPREADSHEET_ID
         value: 1TpB2iMLGiJzzz2trmitq2hGZLDOQ120gndDJuDqLBJk
       - key: SHEET_NAME

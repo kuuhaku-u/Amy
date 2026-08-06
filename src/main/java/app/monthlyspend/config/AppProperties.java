@@ -12,5 +12,8 @@ public record AppProperties(
         String corsAllowedOrigins,
         String receiptFolderId,
         String foodReceiptFolderId,
-        String spendReceiptFolderId
+        String spendReceiptFolderId,
+        String googleDriveOauthClientId,
+        String googleDriveOauthClientSecret,
+        String googleDriveOauthRedirectUri
 ) {}

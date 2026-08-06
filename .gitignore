@@ -1,6 +1,7 @@
 # Secrets and local environment
 credentials.json
 credentials*.json
+client*.json
 !credentials.example.json
 .env
 .env.*

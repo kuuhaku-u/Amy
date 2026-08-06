@@ -30,6 +30,7 @@ public final class MonthlySpendModels {
     public record CashflowResponse(String sheetName, List<List<Object>> rows) {}
     public record ReceiptResponse(String fileId, String name, String folderName) {}
     public record ReceiptImage(String id, LocalDate date, String kind, String mimeType, String imageBase64) {}
+    public record DriveConnection(boolean configured, boolean connected, String authorizationUrl) {}
     public record FoodLogRequest(
             @NotNull LocalDate date,
             @NotBlank @Pattern(regexp = "BREAKFAST|LUNCH|SNACK|DINNER") String meal,

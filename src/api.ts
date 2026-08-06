@@ -1,5 +1,5 @@
 import { queuedItems, removeQueued } from "./db";
-import type { AnalyticsResponse, CashflowResponse, FoodLogRequest, HistoryEntry, ReceiptImage, ReceiptResponse, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
+import type { AnalyticsResponse, CashflowResponse, DriveConnection, FoodLogRequest, HistoryEntry, ReceiptImage, ReceiptResponse, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
 import { recordApiLog } from "./devlog";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -67,6 +67,10 @@ export function loadReceipts(date: string, sheet: string, token: string): Promis
 
 export function loadAllReceipts(sheet: string, token: string): Promise<ReceiptImage[]> {
   return request(`/api/monthly-spend/receipts?sheet=${encodeURIComponent(sheet)}`, token);
+}
+
+export function loadDriveConnection(token: string): Promise<DriveConnection> {
+  return request("/api/monthly-spend/drive/status", token);
 }
 
 export function logFood(entry: FoodLogRequest, token: string): Promise<{ status: string }> {
