@@ -51,7 +51,13 @@ public class GoogleDriveOAuthService {
     }
 
     public boolean configured() { return text(clientId) && text(clientSecret); }
-    public boolean connected() { return configured() && loadSetting(TOKEN_KEY) != null; }
+    public boolean connected() {
+        if (!configured()) return false;
+        var stored = loadSetting(TOKEN_KEY);
+        if (stored == null) return false;
+        try { decrypt(stored); return true; }
+        catch (ApiException exception) { return false; }
+    }
 
     public String authorizationUrl() {
         requireConfigured();
@@ -153,7 +159,7 @@ public class GoogleDriveOAuthService {
     private String sign(String value) { try { var mac = javax.crypto.Mac.getInstance("HmacSHA256"); mac.init(new javax.crypto.spec.SecretKeySpec(properties.accessToken().getBytes(StandardCharsets.UTF_8), "HmacSHA256")); return Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(value.getBytes(StandardCharsets.UTF_8))); } catch (Exception e) { throw new IllegalStateException(e); } }
     private String encrypt(String value) { try { var iv = new byte[12]; new SecureRandom().nextBytes(iv); var cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key(), new GCMParameterSpec(128, iv)); return Base64.getEncoder().encodeToString(iv) + ":" + Base64.getEncoder().encodeToString(cipher.doFinal(value.getBytes(StandardCharsets.UTF_8))); } catch (Exception e) { throw new IllegalStateException(e); } }
     private String decrypt(String value) { try { var parts = value.split(":", 2); var cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, Base64.getDecoder().decode(parts[0]))); return new String(cipher.doFinal(Base64.getDecoder().decode(parts[1])), StandardCharsets.UTF_8); } catch (Exception e) { throw new ApiException(HttpStatus.UNAUTHORIZED, "The saved Google Drive connection cannot be unlocked with this app key."); } }
-    private SecretKeySpec key() { try { return new SecretKeySpec(MessageDigest.getInstance("SHA-256").digest(properties.accessToken().getBytes(StandardCharsets.UTF_8)), "AES"); } catch (Exception e) { throw new IllegalStateException(e); } }
+    private SecretKeySpec key() { try { return new SecretKeySpec(MessageDigest.getInstance("SHA-256").digest(clientSecret.getBytes(StandardCharsets.UTF_8)), "AES"); } catch (Exception e) { throw new IllegalStateException(e); } }
     private void requireConfigured() { if (!configured()) throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "Google Drive OAuth client credentials are not configured."); }
     private static Map<String, String> loadLocalClient(ObjectMapper json) {
         try {
