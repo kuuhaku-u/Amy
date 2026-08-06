@@ -342,7 +342,7 @@ public class MonthlySpendService {
     public MonthlySpendModels.ReceiptResponse uploadReceipt(MultipartFile file, LocalDate date, String requestedSheet, String kind) {
         var sheetName = resolveSheet(requestedSheet);
         if (file.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a receipt file to upload.");
-        if (file.getSize() > 10 * 1024 * 1024) throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "Receipt images must be 10 MB or smaller.");
+        if (file.getSize() > 20L * 1024 * 1024) throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "Receipt images must be 20 MB or smaller.");
         var contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
         if (!List.of("image/jpeg", "image/png", "image/webp").contains(contentType))
             throw new ApiException(HttpStatus.BAD_REQUEST, "Receipts must be JPEG, PNG, or WebP images.");

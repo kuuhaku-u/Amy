@@ -4,6 +4,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.Map;
 
@@ -18,5 +19,9 @@ public class ApiErrorHandler {
     ResponseEntity<Map<String, String>> validationError() {
         return ResponseEntity.badRequest().body(Map.of("error", "The submitted data is invalid."));
     }
-}
 
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<Map<String, String>> uploadTooLarge() {
+        return ResponseEntity.status(413).body(Map.of("error", "Receipt images must be 20 MB or smaller."));
+    }
+}
