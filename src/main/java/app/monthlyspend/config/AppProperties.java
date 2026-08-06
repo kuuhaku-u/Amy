@@ -9,5 +9,8 @@ public record AppProperties(
         String accessToken,
         String googleCredentialsJson,
         String googleCredentialsFile,
-        String corsAllowedOrigins
+        String corsAllowedOrigins,
+        String receiptFolderId,
+        String foodReceiptFolderId,
+        String spendReceiptFolderId
 ) {}

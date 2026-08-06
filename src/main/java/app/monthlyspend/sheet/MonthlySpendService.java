@@ -4,6 +4,7 @@ import app.monthlyspend.api.ApiException;
 import app.monthlyspend.config.AppProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -19,6 +20,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import javax.crypto.Cipher;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import static app.monthlyspend.sheet.MonthlySpendModels.SpendResponse;
 import static app.monthlyspend.sheet.MonthlySpendModels.UpdateRequest;
@@ -33,6 +43,11 @@ import static app.monthlyspend.sheet.MonthlySpendModels.SheetInfo;
 
 @Service
 public class MonthlySpendService {
+    private static final String RECEIPT_FOLDER = "Monthly Spend Receipts";
+    private static final String FOOD_LOG_SHEET = "Food Log";
+    private static final List<String> FOOD_LOG_HEADERS = List.of("Date", "Meal", "Food", "Amount", "Notes", "Receipt File ID", "Recorded At");
+    private static final String PRIVATE_SETTINGS_SHEET = "Private Settings";
+    private static final List<String> PRIVATE_SETTINGS_HEADERS = List.of("Key", "Value", "Updated At");
     private static final String TRANSACTION_SHEET = "Transaction Log";
     private static final List<String> TRANSACTION_HEADERS = List.of(
             "Event ID", "Occurred At", "Type", "Amount", "Category", "Merchant", "Source",
@@ -305,6 +320,132 @@ public class MonthlySpendService {
                 .toList();
         return new MonthlySpendModels.CashflowResponse(name, rows);
     }
+
+    public MonthlySpendModels.ReceiptResponse uploadReceipt(MultipartFile file, LocalDate date, String requestedSheet, String kind) {
+        var sheetName = resolveSheet(requestedSheet);
+        if (file.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a receipt file to upload.");
+        if (file.getSize() > 10 * 1024 * 1024) throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "Receipts must be 10 MB or smaller.");
+        var contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
+        if (!List.of("image/jpeg", "image/png", "image/webp", "application/pdf").contains(contentType))
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Receipts must be JPEG, PNG, WebP, or PDF files.");
+        try {
+            var safeOriginal = file.getOriginalFilename() == null ? "receipt" : file.getOriginalFilename().replaceAll("[^A-Za-z0-9._-]", "_");
+            var name = date + "_" + safeOriginal;
+            var food = "food".equalsIgnoreCase(kind);
+            var configuredFolder = food ? properties.foodReceiptFolderId() : properties.spendReceiptFolderId();
+            if (configuredFolder == null || configuredFolder.isBlank()) configuredFolder = properties.receiptFolderId();
+            var folderId = configuredFolder == null || configuredFolder.isBlank()
+                    ? sheets.ensureDriveFolder(RECEIPT_FOLDER) : configuredFolder.trim();
+            var fileId = sheets.uploadDriveFile(folderId, name, contentType, file.getBytes(), Map.of(
+                    "monthlySpendDate", date.toString(), "monthlySpendSheet", sheetName));
+            return new MonthlySpendModels.ReceiptResponse(fileId, name, food ? "Food receipts" : "Spend receipts");
+        } catch (java.io.IOException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not read the uploaded receipt.");
+        }
+    }
+
+    public MonthlySpendModels.FoodLogResponse logFood(MonthlySpendModels.FoodLogRequest request) {
+        updateLock.lock();
+        try {
+            var ids = sheets.sheetIds();
+            if (!ids.containsKey(FOOD_LOG_SHEET)) {
+                sheets.addSheet(FOOD_LOG_SHEET);
+            }
+            sheets.batchUpdateValues(List.of(Map.of("range", quote(FOOD_LOG_SHEET) + "!A1:G1",
+                    "majorDimension", "ROWS", "values", List.of(FOOD_LOG_HEADERS))));
+            sheets.appendRow(quote(FOOD_LOG_SHEET) + "!A:G", List.of(
+                    dateFormula(request.date()), request.meal(), request.food().trim(), request.amount(),
+                    request.notes() == null ? "" : request.notes().trim(),
+                    request.receiptFileId() == null ? "" : request.receiptFileId(), OffsetDateTime.now().toString()));
+            return new MonthlySpendModels.FoodLogResponse("CREATED", request.date(), request.meal(), request.food().trim());
+        } finally { updateLock.unlock(); }
+    }
+
+    public MonthlySpendModels.PrivateIncomeResponse savePrivateIncome(MonthlySpendModels.PrivateIncomeRequest request) {
+        updateLock.lock();
+        try {
+            var settings = loadPrivateSettings();
+            var prefix = "income." + request.month() + ".";
+            var existingSalt = settings.get(prefix + "salt");
+            if (existingSalt != null) verifyPassphrase(request.passphrase(), existingSalt, settings.get(prefix + "verifier"));
+            var salt = existingSalt == null ? randomBytes(16) : Base64.getDecoder().decode(existingSalt);
+            var key = deriveKey(request.passphrase(), salt);
+            var iv = randomBytes(12);
+            var cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
+            var encrypted = cipher.doFinal(request.income().toPlainString().getBytes(StandardCharsets.UTF_8));
+            upsertPrivateSettings(Map.of(
+                    prefix + "salt", Base64.getEncoder().encodeToString(salt),
+                    prefix + "verifier", verifier(key),
+                    prefix + "cipher", Base64.getEncoder().encodeToString(iv) + ":" + Base64.getEncoder().encodeToString(encrypted)));
+            return new MonthlySpendModels.PrivateIncomeResponse(request.income());
+        } catch (ApiException exception) { throw exception;
+        } catch (Exception exception) { throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not secure the income value.");
+        } finally { updateLock.unlock(); }
+    }
+
+    public MonthlySpendModels.PrivateIncomeResponse unlockPrivateIncome(MonthlySpendModels.PrivateIncomeUnlockRequest request) {
+        try {
+            var settings = loadPrivateSettings();
+            var prefix = "income." + request.month() + ".";
+            var saltText = settings.get(prefix + "salt");
+            var cipherText = settings.get(prefix + "cipher");
+            if (saltText == null || cipherText == null) throw new ApiException(HttpStatus.NOT_FOUND, "No private income has been saved yet.");
+            var key = verifyPassphrase(request.passphrase(), saltText, settings.get(prefix + "verifier"));
+            var parts = cipherText.split(":", 2);
+            var cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, Base64.getDecoder().decode(parts[0])));
+            var value = new String(cipher.doFinal(Base64.getDecoder().decode(parts[1])), StandardCharsets.UTF_8);
+            return new MonthlySpendModels.PrivateIncomeResponse(new BigDecimal(value));
+        } catch (ApiException exception) { throw exception;
+        } catch (Exception exception) { throw new ApiException(HttpStatus.UNAUTHORIZED, "The income passphrase is incorrect."); }
+    }
+
+    private Map<String, String> loadPrivateSettings() {
+        if (!sheets.sheetIds().containsKey(PRIVATE_SETTINGS_SHEET)) return new LinkedHashMap<>();
+        var rows = sheets.readValues(quote(PRIVATE_SETTINGS_SHEET) + "!A2:C");
+        var result = new LinkedHashMap<String, String>();
+        for (var row : rows) if (row.size() >= 2) result.put(row.get(0).toString(), row.get(1).toString());
+        return result;
+    }
+
+    private void upsertPrivateSettings(Map<String, String> changes) {
+        var ids = sheets.sheetIds();
+        if (!ids.containsKey(PRIVATE_SETTINGS_SHEET)) {
+            sheets.addSheet(PRIVATE_SETTINGS_SHEET);
+            sheets.batchUpdateValues(List.of(Map.of("range", quote(PRIVATE_SETTINGS_SHEET) + "!A1:C1",
+                    "majorDimension", "ROWS", "values", List.of(PRIVATE_SETTINGS_HEADERS))));
+        }
+        var rows = sheets.readValues(quote(PRIVATE_SETTINGS_SHEET) + "!A2:C");
+        var rowByKey = new HashMap<String, Integer>();
+        for (int index = 0; index < rows.size(); index++) if (!rows.get(index).isEmpty()) rowByKey.put(rows.get(index).get(0).toString(), index + 2);
+        var updates = new ArrayList<Map<String, Object>>();
+        for (var entry : changes.entrySet()) {
+            var row = rowByKey.get(entry.getKey());
+            if (row == null) sheets.appendRow(quote(PRIVATE_SETTINGS_SHEET) + "!A:C", List.of(entry.getKey(), entry.getValue(), OffsetDateTime.now().toString()));
+            else updates.add(Map.of("range", quote(PRIVATE_SETTINGS_SHEET) + "!B" + row + ":C" + row,
+                    "majorDimension", "ROWS", "values", List.of(List.of(entry.getValue(), OffsetDateTime.now().toString()))));
+        }
+        if (!updates.isEmpty()) sheets.batchUpdateValues(updates);
+    }
+
+    private static SecretKeySpec verifyPassphrase(String passphrase, String saltText, String expected) {
+        var key = deriveKey(passphrase, Base64.getDecoder().decode(saltText));
+        if (expected == null || !MessageDigest.isEqual(verifier(key).getBytes(StandardCharsets.UTF_8), expected.getBytes(StandardCharsets.UTF_8)))
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "The income passphrase is incorrect.");
+        return key;
+    }
+    private static SecretKeySpec deriveKey(String passphrase, byte[] salt) {
+        try {
+            var spec = new PBEKeySpec(passphrase.toCharArray(), salt, 210_000, 256);
+            return new SecretKeySpec(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded(), "AES");
+        } catch (Exception exception) { throw new IllegalStateException(exception); }
+    }
+    private static String verifier(SecretKeySpec key) {
+        try { return Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(key.getEncoded())); }
+        catch (Exception exception) { throw new IllegalStateException(exception); }
+    }
+    private static byte[] randomBytes(int size) { var bytes = new byte[size]; new SecureRandom().nextBytes(bytes); return bytes; }
 
     public SheetInfo createSheet(CreateSheetRequest request) {
         updateLock.lock();

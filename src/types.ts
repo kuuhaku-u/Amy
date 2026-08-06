@@ -68,3 +68,5 @@ export interface QueuedSubmission {
 export interface SheetInfo { name: string; }
 export interface HistoryEntry { date: string; values: ExpenseValues; comments: Partial<Record<ExpenseKey, string>>; total: number; }
 export interface CashflowResponse { sheetName: string; rows: (string | number | boolean | null)[][]; }
+export interface ReceiptResponse { fileId: string; name: string; folderName: string; }
+export interface FoodLogRequest { date: string; meal: "BREAKFAST" | "LUNCH" | "SNACK" | "DINNER"; food: string; amount: number; notes?: string; receiptFileId?: string; }

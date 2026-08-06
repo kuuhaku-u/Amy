@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.MediaType;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -64,6 +67,30 @@ public class MonthlySpendController {
 
     @GetMapping("/cashflow")
     MonthlySpendModels.CashflowResponse cashflow() { return service.cashflow(); }
+
+    @PostMapping(value = "/receipts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    MonthlySpendModels.ReceiptResponse uploadReceipt(
+            @RequestPart("file") MultipartFile file,
+            @RequestPart("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestPart("sheet") String sheet,
+            @RequestPart(value = "kind", required = false) String kind) {
+        return service.uploadReceipt(file, date, sheet, kind);
+    }
+
+    @PostMapping("/food-log")
+    MonthlySpendModels.FoodLogResponse foodLog(@Valid @RequestBody MonthlySpendModels.FoodLogRequest request) {
+        return service.logFood(request);
+    }
+
+    @PostMapping("/private-income")
+    MonthlySpendModels.PrivateIncomeResponse savePrivateIncome(@Valid @RequestBody MonthlySpendModels.PrivateIncomeRequest request) {
+        return service.savePrivateIncome(request);
+    }
+
+    @PostMapping("/private-income/unlock")
+    MonthlySpendModels.PrivateIncomeResponse unlockPrivateIncome(@Valid @RequestBody MonthlySpendModels.PrivateIncomeUnlockRequest request) {
+        return service.unlockPrivateIncome(request);
+    }
 
     @PostMapping("/transactions")
     TransactionResponse transaction(@Valid @RequestBody TransactionRequest request) {

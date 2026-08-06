@@ -1,5 +1,5 @@
 import { queuedItems, removeQueued } from "./db";
-import type { AnalyticsResponse, CashflowResponse, HistoryEntry, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
+import type { AnalyticsResponse, CashflowResponse, FoodLogRequest, HistoryEntry, ReceiptResponse, SheetInfo, SpendResponse, TransactionRequest, TransactionResponse } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -15,7 +15,7 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${token}`,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...init?.headers
     }
   });
@@ -46,6 +46,23 @@ export function loadHistory(from: string, to: string, sheet: string, token: stri
 
 export function loadCashflow(token: string): Promise<CashflowResponse> {
   return request("/api/monthly-spend/cashflow", token);
+}
+
+export function uploadReceipt(file: File, date: string, sheet: string, kind: "food" | "spend", token: string): Promise<ReceiptResponse> {
+  const body = new FormData(); body.append("file", file); body.append("date", date); body.append("sheet", sheet); body.append("kind", kind);
+  return request("/api/monthly-spend/receipts", token, { method: "POST", body });
+}
+
+export function logFood(entry: FoodLogRequest, token: string): Promise<{ status: string }> {
+  return request("/api/monthly-spend/food-log", token, { method: "POST", body: JSON.stringify(entry) });
+}
+
+export function savePrivateIncome(month: string, income: number, passphrase: string, token: string): Promise<{ income: number }> {
+  return request("/api/monthly-spend/private-income", token, { method: "POST", body: JSON.stringify({ month, income, passphrase }) });
+}
+
+export function unlockPrivateIncome(month: string, passphrase: string, token: string): Promise<{ income: number }> {
+  return request("/api/monthly-spend/private-income/unlock", token, { method: "POST", body: JSON.stringify({ month, passphrase }) });
 }
 
 export function recordTransaction(transaction: TransactionRequest, token: string): Promise<TransactionResponse> {

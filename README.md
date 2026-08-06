@@ -295,6 +295,9 @@ Press `Ctrl+C` once to stop both processes.
 | `APP_ACCESS_TOKEN` | insecure development value | Shared secret used by private activation links |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `credentials.json` | Local service-account JSON path |
 | `GOOGLE_CREDENTIALS_JSON` | empty | Complete credentials JSON for hosted environments |
+| `GOOGLE_DRIVE_RECEIPT_FOLDER_ID` | empty | Optional private Drive folder ID for receipt uploads; share the folder with the service account as Editor |
+| `GOOGLE_DRIVE_FOOD_FOLDER_ID` | empty | Drive folder ID for food receipts |
+| `GOOGLE_DRIVE_SPEND_FOLDER_ID` | empty | Drive folder ID for general spending receipts |
 | `SPREADSHEET_ID` | supplied spreadsheet ID | Destination spreadsheet |
 | `SHEET_NAME` | `Monthy Spend ` | Exact worksheet title, including its trailing space |
 | `APP_CORS_ALLOWED_ORIGINS` | `https://localhost` | Exact comma-separated native WebView origins allowed to call the API |

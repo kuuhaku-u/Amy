@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 public class SheetsClient {
     private static final String BASE_URL = "https://sheets.googleapis.com/v4/spreadsheets/";
@@ -116,6 +117,48 @@ public class SheetsClient {
         send("POST", BASE_URL + properties.spreadsheetId() + "/values/" + encodePath(range) + ":clear", Map.of());
     }
 
+    public String ensureDriveFolder(String folderName) {
+        var query = "mimeType='application/vnd.google-apps.folder' and trashed=false and name='"
+                + folderName.replace("'", "\\'") + "'";
+        var response = send("GET", "https://www.googleapis.com/drive/v3/files?q=" + encodePath(query)
+                + "&fields=files(id,name)&pageSize=1", null);
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(response, new TypeReference<>() {});
+            var files = objectMapper.convertValue(parsed.getOrDefault("files", List.of()),
+                    new TypeReference<List<Map<String, Object>>>() {});
+            if (!files.isEmpty()) return files.get(0).get("id").toString();
+            var created = send("POST", "https://www.googleapis.com/drive/v3/files?fields=id", Map.of(
+                    "name", folderName, "mimeType", "application/vnd.google-apps.folder"));
+            Map<String, Object> folder = objectMapper.readValue(created, new TypeReference<>() {});
+            return folder.get("id").toString();
+        } catch (IOException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Google Drive returned unreadable folder information.");
+        }
+    }
+
+    public String uploadDriveFile(String folderId, String name, String contentType, byte[] bytes,
+                                  Map<String, String> appProperties) {
+        var boundary = "monthly-spend-" + UUID.randomUUID();
+        try {
+            var metadata = objectMapper.writeValueAsString(Map.of(
+                    "name", name, "parents", List.of(folderId), "appProperties", appProperties));
+            var prefix = ("--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
+                    + metadata + "\r\n--" + boundary + "\r\nContent-Type: " + contentType + "\r\n\r\n")
+                    .getBytes(StandardCharsets.UTF_8);
+            var suffix = ("\r\n--" + boundary + "--").getBytes(StandardCharsets.UTF_8);
+            var body = new byte[prefix.length + bytes.length + suffix.length];
+            System.arraycopy(prefix, 0, body, 0, prefix.length);
+            System.arraycopy(bytes, 0, body, prefix.length, bytes.length);
+            System.arraycopy(suffix, 0, body, prefix.length + bytes.length, suffix.length);
+            var response = sendBytes("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+                    "multipart/related; boundary=" + boundary, body);
+            Map<String, Object> parsed = objectMapper.readValue(response, new TypeReference<>() {});
+            return parsed.get("id").toString();
+        } catch (IOException exception) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not prepare the receipt for Google Drive.");
+        }
+    }
+
     public void batchUpdateSpreadsheet(List<Map<String, Object>> requests) {
         send("POST", BASE_URL + properties.spreadsheetId() + ":batchUpdate", Map.of("requests", requests));
     }
@@ -161,6 +204,24 @@ public class SheetsClient {
         } catch (IOException | InterruptedException exception) {
             if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not connect to Google Sheets.");
+        }
+    }
+
+    private String sendBytes(String method, String url, String contentType, byte[] body) {
+        try {
+            credentials.refreshIfExpired();
+            var request = HttpRequest.newBuilder(URI.create(url))
+                    .header("Authorization", "Bearer " + credentials.getAccessToken().getTokenValue())
+                    .header("Accept", "application/json").header("Content-Type", contentType)
+                    .method(method, HttpRequest.BodyPublishers.ofByteArray(body)).build();
+            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300)
+                throw new ApiException(HttpStatus.BAD_GATEWAY, googleError(response.statusCode(), response.body()));
+            return response.body();
+        } catch (ApiException exception) { throw exception;
+        } catch (IOException | InterruptedException exception) {
+            if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not connect to Google Drive.");
         }
     }
 
